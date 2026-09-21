@@ -1,0 +1,965 @@
+;======================================================================
+;  NOISE AV  --  milestone 2: scene framework + effect prototypes
+;  Atari ST (68000 @ 8MHz, plain 1040 STF, SM124 mono 640x400 @ 71Hz)
+;
+;  Keys:  1-4 pick a scene   0 = auto-cycle   ESC = quit
+;         any other key = manual hit (VJing without MIDI)
+;
+;  Build with -DDIAG=1 for the frame-budget overrun bar.
+;======================================================================
+
+    ifnd DIAG
+DIAG        equ 0
+    endif
+    ifnd STARTSCENE
+STARTSCENE  equ 0
+    endif
+    ifnd AUTOCYCLE
+AUTOCYCLE   equ 0
+    endif
+    ; Lowest pad note. Akai MPK Mini mk3 bank A starts at 36, mk2 at 48.
+    ; Any contiguous run of 8 notes still gives 8 distinct looks whatever
+    ; this is set to -- a wrong base only rotates which pad is which.
+    ifnd PAD_BASE
+PAD_BASE    equ 36
+    endif
+
+; ---- GEMDOS (trap #1) ------------------------------------------------
+GD_PTERM0   equ 0
+GD_CNECIN   equ 8
+GD_CCONIS   equ 11
+GD_SUPER    equ 32
+
+; ---- BIOS (trap #13) -------------------------------------------------
+B_BCONSTAT  equ 1
+B_BCONIN    equ 2
+DEV_MIDI    equ 3
+
+; ---- XBIOS (trap #14) ------------------------------------------------
+XB_PHYSBASE equ 2
+XB_GETREZ   equ 4
+XB_SETSCREEN equ 5
+XB_SETPAL   equ 6
+XB_VSYNC    equ 37
+
+; ---- hardware --------------------------------------------------------
+SCR_HI      equ $ffff8201       ; screen base, bits 16-23
+SCR_MID     equ $ffff8203       ; screen base, bits 8-15
+                                ; (no low byte on a plain ST: 256-byte steps)
+PALETTE_HW  equ $ffff8240
+VBCLOCK     equ $462            ; system VBL counter
+
+SCR_SIZE    equ 32000
+SCR_PAGES   equ 125             ; 125 * 256 = 32000, one visible screen
+RANGE_PAGES equ 128             ; how far the window may travel before wrapping
+BUF_PAGES   equ SCR_PAGES+RANGE_PAGES
+BUF_TOTAL   equ BUF_PAGES*256
+
+NOISE_HIT   equ $e8             ; only the very top of the envelope punches noise
+
+POOL_SIZE   equ 32768
+POOL_MASK   equ $3ffc
+
+LEVEL_DECAY equ 6
+CYCLE_FRAMES equ 400            ; auto-cycle dwell, ~5.6s at 71Hz
+
+SC_FIELD    equ 0             ; moire generated into a scrolling field
+SC_MOIRE    equ 1             ; the original full-redraw moire, kept for reference
+SC_BAND     equ 2
+SC_STROBE   equ 3
+SC_COUNT    equ 4
+
+    section text
+
+;----------------------------------------------------------------------
+start:
+    clr.l   -(sp)
+    move.w  #GD_SUPER,-(sp)
+    trap    #1
+    addq.l  #6,sp
+    move.l  d0,old_ssp
+
+    move.w  #XB_GETREZ,-(sp)
+    trap    #14
+    addq.l  #2,sp
+    move.w  d0,rez
+
+    move.w  #XB_PHYSBASE,-(sp)
+    trap    #14
+    addq.l  #2,sp
+    move.l  d0,old_phys
+
+    lea     PALETTE_HW,a0
+    lea     old_pal,a1
+    moveq   #15,d0
+.savepal:
+    move.w  (a0)+,(a1)+
+    dbra    d0,.savepal
+
+    ; --- geometry of whatever mode we booted into --------------------
+    move.w  rez,d0
+    move.w  #80,d1
+    move.w  #200,d2
+    tst.w   d0
+    bne.s   .not_low
+    move.w  #160,d1
+.not_low:
+    cmp.w   #2,d0
+    bne.s   .not_high
+    move.w  #400,d2
+.not_high:
+    move.w  d1,row_bytes
+    move.w  d2,scr_rows
+    move.w  d2,d3
+    lsr.w   #1,d3
+    move.w  d3,half_rows
+    divu    #3,d2
+    and.w   #$fffe,d2
+    move.w  d2,max_rows
+
+    ; --- our own screen buffer, 256-byte aligned ---------------------
+    lea     screen_mem,a0
+    move.l  a0,d0
+    add.l   #255,d0
+    and.l   #$ffffff00,d0
+    move.l  d0,buf_base
+
+    bsr     build_noise_pool
+    bsr     build_stripe_tbl
+
+    pea     new_pal
+    move.w  #XB_SETPAL,-(sp)
+    trap    #14
+    addq.l  #6,sp
+
+    move.w  #STARTSCENE,scene
+    clr.w   auto_cycle
+    if AUTOCYCLE
+    move.w  #1,auto_cycle
+    endif
+    bsr     scene_enter
+
+;----------------------------------------------------------------------
+mainloop:
+    bsr     wait_vbl
+    bsr     measure_overrun
+
+    ; --- run the current scene ---------------------------------------
+    move.w  scene,d0
+    lsl.w   #2,d0
+    lea     scene_frame_tbl,a0
+    move.l  (a0,d0.w),a0
+    jsr     (a0)
+
+    if DIAG
+    bsr     draw_overrun_bar
+    endif
+
+    bsr     poll_midi
+    bsr     poll_keyboard
+    bsr     decay_level
+    bsr     do_auto_cycle
+
+    tst.w   quit_flag
+    beq     mainloop
+
+;----------------------------------------------------------------------
+exit:
+    ; hand the machine back exactly as we found it
+    move.w  #-1,-(sp)
+    move.l  old_phys,-(sp)
+    move.l  old_phys,-(sp)
+    move.w  #XB_SETSCREEN,-(sp)
+    trap    #14
+    lea     12(sp),sp
+
+    move.l  old_phys,a0
+    move.l  a0,a1
+    add.l   #SCR_SIZE,a1
+    bsr     clear_span
+
+    pea     old_pal
+    move.w  #XB_SETPAL,-(sp)
+    trap    #14
+    addq.l  #6,sp
+
+    move.l  old_ssp,-(sp)
+    move.w  #GD_SUPER,-(sp)
+    trap    #1
+    addq.l  #6,sp
+
+    clr.w   -(sp)
+    trap    #1
+
+;----------------------------------------------------------------------
+wait_vbl:
+    move.w  #XB_VSYNC,-(sp)
+    trap    #14
+    addq.l  #2,sp
+    rts
+
+;----------------------------------------------------------------------
+; If the VBL counter moved by more than one while we were drawing, the
+; last frame did not fit in its budget. This is the honest way to know
+; whether an effect is actually affordable on an 8MHz 68000.
+;----------------------------------------------------------------------
+measure_overrun:
+    move.l  VBCLOCK,d0
+    move.l  d0,d1
+    sub.l   last_vbl,d1
+    move.l  d0,last_vbl
+    cmp.l   #1,d1
+    bls.s   .ok
+    addq.w  #1,overrun_acc
+.ok:
+    addq.w  #1,window_ctr
+    cmp.w   #64,window_ctr
+    bcs.s   .done
+    clr.w   window_ctr
+    move.w  overrun_acc,overrun_disp
+    clr.w   overrun_acc
+.done:
+    rts
+
+;----------------------------------------------------------------------
+; d0 = address -> ST screen base register (256-byte granularity)
+;----------------------------------------------------------------------
+set_screen_base:
+    move.l  d0,cur_base
+    lsr.l   #8,d0
+    move.b  d0,SCR_MID
+    lsr.l   #8,d0
+    move.b  d0,SCR_HI
+    rts
+
+;----------------------------------------------------------------------
+build_noise_pool:
+    lea     noise_pool,a0
+    move.l  #$12345678,d0
+    move.w  #(POOL_SIZE/4)-1,d7
+.lp:
+    move.l  d0,d1
+    lsl.l   #3,d1
+    eor.l   d1,d0
+    move.l  d0,d1
+    lsr.l   #5,d1
+    eor.l   d1,d0
+    move.l  d0,d1
+    lsl.l   #4,d1
+    eor.l   d1,d0
+    move.l  d0,(a0)+
+    dbra    d7,.lp
+    move.l  d0,rng_state
+    rts
+
+;----------------------------------------------------------------------
+; 256 vertical-stripe patterns, one per "frequency". Laying these down
+; row by row with a drifting index is what produces moire.
+;----------------------------------------------------------------------
+build_stripe_tbl:
+    lea     stripe_tbl,a0
+    moveq   #0,d2
+.outer:
+    moveq   #0,d3               ; pattern word
+    moveq   #0,d5               ; phase accumulator
+    moveq   #15,d4
+.bits:
+    lsl.w   #1,d3
+    move.w  d5,d6
+    lsr.w   #4,d6
+    btst    #0,d6
+    beq.s   .zero
+    bset    #0,d3
+.zero:
+    add.w   d2,d5
+    dbra    d4,.bits
+    move.w  d3,(a0)+
+    addq.w  #1,d2
+    cmp.w   #256,d2
+    bcs.s   .outer
+    rts
+
+;----------------------------------------------------------------------
+; a0 = start, a1 = end (exclusive). Span must be a multiple of 32.
+;----------------------------------------------------------------------
+clear_span:
+    moveq   #0,d0
+    moveq   #0,d1
+    moveq   #0,d2
+    moveq   #0,d3
+    moveq   #0,d4
+    moveq   #0,d5
+    moveq   #0,d6
+    moveq   #0,d7
+.lp:
+    movem.l d0-d7,(a0)
+    lea     32(a0),a0
+    cmp.l   a0,a1
+    bhi.s   .lp
+    rts
+
+;----------------------------------------------------------------------
+; a0 = start, a1 = end, a2 = source. Fastest bulk copy the 68000 has.
+;----------------------------------------------------------------------
+fill_span:
+.lp:
+    movem.l (a2)+,d0-d7
+    movem.l d0-d7,(a0)
+    lea     32(a0),a0
+    cmp.l   a0,a1
+    bhi.s   .lp
+    rts
+
+;----------------------------------------------------------------------
+; a0 = start, a1 = end, d0 = longword pattern
+;----------------------------------------------------------------------
+fill_pattern:
+    move.l  d0,d1
+    move.l  d0,d2
+    move.l  d0,d3
+    move.l  d0,d4
+    move.l  d0,d5
+    move.l  d0,d6
+    move.l  d0,d7
+.lp:
+    movem.l d0-d7,(a0)
+    lea     32(a0),a0
+    cmp.l   a0,a1
+    bhi.s   .lp
+    rts
+
+;----------------------------------------------------------------------
+clear_visible:
+    move.l  cur_base,a0
+    move.l  a0,a1
+    add.l   #SCR_SIZE,a1
+    bra     clear_span
+
+;----------------------------------------------------------------------
+; scene entry / dispatch
+;----------------------------------------------------------------------
+scene_enter:
+    clr.w   cycle_ctr
+    move.l  buf_base,d0
+    bsr     set_screen_base
+    move.w  #$000,PALETTE_HW    ; mono: colour 0 dark = black bg, white ink
+    bsr     clear_visible
+    move.w  scene,d0
+    lsl.w   #2,d0
+    lea     scene_init_tbl,a0
+    move.l  (a0,d0.w),a0
+    jmp     (a0)
+
+;======================================================================
+; SCENE 1 -- BAND
+; A noise band whose height is a MIDI-driven envelope. The baseline.
+;======================================================================
+band_init:
+    clr.w   prev_chunks
+    rts
+
+band_frame:
+    move.w  prev_chunks,d0
+    beq.s   .erased
+    move.l  prev_ptr,a0
+    move.l  a0,a1
+    ext.l   d0
+    lsl.l   #5,d0
+    add.l   d0,a1
+    bsr     clear_span
+.erased:
+    clr.w   prev_chunks
+
+    move.w  level,d0
+    and.l   #$ff,d0
+    mulu    max_rows,d0
+    lsr.l   #8,d0
+    and.w   #$fffe,d0
+    move.w  d0,d6
+    beq.s   .done
+
+    move.w  scr_rows,d1
+    sub.w   d6,d1
+    lsr.w   #1,d1
+    and.w   #$fffe,d1
+    mulu    row_bytes,d1
+    move.l  cur_base,a0
+    add.l   d1,a0
+
+    move.w  d6,d2
+    mulu    row_bytes,d2
+    move.l  a0,a1
+    add.l   d2,a1
+
+    move.l  a0,prev_ptr
+    lsr.l   #5,d2
+    move.w  d2,prev_chunks
+
+    bsr     next_rng
+    move.w  pool_off,d4
+    add.w   d3,d4
+    and.w   #POOL_MASK,d4
+    move.w  d4,pool_off
+    lea     noise_pool,a2
+    add.w   d4,a2
+    bsr     fill_span
+.done:
+    rts
+
+;======================================================================
+; SCENE 1 -- MOIRE FIELD   (the chosen scene)
+;
+; Scrolling on a plain ST means moving the screen base register, and there
+; is only one of those -- so everything on screen scrolls together. There is
+; no way to hold a static layer over a moving one in a single framebuffer.
+;
+; So instead of drawing moire *over* the scroll, we generate it *into* the
+; leading edge of the field. Each frame only the newly exposed strip is
+; written; everything already on screen just slides. The vertical axis stops
+; being space and becomes time: what you see is the last two seconds of the
+; pattern's history, flowing past.
+;
+; That also makes it far cheaper than redrawing half the screen -- at one
+; page per frame it is 512 bytes instead of 16000.
+;
+; Two details make it seamless:
+;   * the base register steps 256 bytes = 3 rows + 128 pixels of shear. The
+;     stripe patterns repeat every 16 pixels, and 128 is a whole number of
+;     those, so the shear is invisible by construction.
+;   * the window wraps after 128 pages, so every page below 125 is written
+;     twice -- once at p, once at p+128. The jump back lands on identical
+;     bytes and cannot be seen.
+;======================================================================
+field_init:
+    clr.w   base_page
+    clr.l   moire_idx
+    move.w  #1024,field_step
+    ; generate pages 0..127; the mirroring writes 128..252 as a side effect,
+    ; so this fills the whole buffer
+    moveq   #0,d0
+.gen:
+    bsr     write_page_mirrored
+    addq.w  #1,d0
+    cmp.w   #RANGE_PAGES,d0
+    bcs.s   .gen
+    rts
+
+field_frame:
+    ; speed comes from the envelope -- silence freezes the picture, and a
+    ; frozen picture costs nothing at all
+    move.w  level,d0
+    lsr.w   #5,d0
+    beq     .frozen
+    move.w  d0,d7
+
+    move.w  base_page,d1
+    add.w   d7,d1
+    cmp.w   #RANGE_PAGES,d1
+    bcs.s   .nowrap
+    sub.w   #RANGE_PAGES,d1
+.nowrap:
+    move.w  d1,base_page
+
+    ; write the strip the scroll just uncovered at the bottom of the window
+    move.w  d1,d2
+    add.w   #SCR_PAGES,d2
+    sub.w   d7,d2
+    move.w  d7,d6
+    subq.w  #1,d6
+.pg:
+    move.w  d2,d0
+    bsr     write_page_mirrored
+    addq.w  #1,d2
+    dbra    d6,.pg
+
+    move.l  buf_base,d0
+    move.w  base_page,d1
+    and.l   #$ffff,d1
+    lsl.l   #8,d1
+    add.l   d1,d0
+    bsr     set_screen_base
+.frozen:
+    rts
+
+;----------------------------------------------------------------------
+; d0.w = page, d1.w = pattern word. Fills one 256-byte page.
+;----------------------------------------------------------------------
+fill_page:
+    movem.l d0-d7/a0-a2,-(sp)
+    and.l   #$ffff,d0
+    lsl.l   #8,d0
+    move.l  buf_base,a0
+    add.l   d0,a0
+    move.l  a0,a1
+    add.l   #256,a1
+    move.w  d1,d0
+    swap    d0
+    move.w  d1,d0
+    bsr     fill_pattern
+    movem.l (sp)+,d0-d7/a0-a2
+    rts
+
+;----------------------------------------------------------------------
+; d0.w = page, d1.w = byte offset into the noise pool.
+;----------------------------------------------------------------------
+fill_page_noise:
+    movem.l d0-d7/a0-a2,-(sp)
+    and.l   #$ffff,d0
+    lsl.l   #8,d0
+    move.l  buf_base,a0
+    add.l   d0,a0
+    move.l  a0,a1
+    add.l   #256,a1
+    lea     noise_pool,a2
+    and.l   #$ffff,d1
+    add.l   d1,a2
+    bsr     fill_span
+    movem.l (sp)+,d0-d7/a0-a2
+    rts
+
+;----------------------------------------------------------------------
+; d0.w = page. Writes it and its mirror with identical content, then
+; advances the pattern index. A hard hit writes noise instead of stripes,
+; so the hit stays visible as a band scrolling away behind the beat.
+;----------------------------------------------------------------------
+write_page_mirrored:
+    movem.l d0-d7/a0-a2,-(sp)
+    move.w  d0,d6               ; page number. NOT d3/d4 -- next_rng clobbers those
+    cmp.w   #NOISE_HIT,level
+    bcs.s   .stripes
+    bsr     next_rng
+    move.w  pool_off,d4
+    add.w   d3,d4
+    and.w   #POOL_MASK,d4
+    move.w  d4,pool_off
+    st      d5                  ; flag: this page is noise
+    bra.s   .have
+
+.stripes:
+    move.l  moire_idx,d1
+    lsr.l   #8,d1
+    and.w   #$ff,d1
+    add.w   d1,d1
+    lea     stripe_tbl,a2
+    move.w  (a2,d1.w),d4
+    clr.b   d5
+.have:
+    move.w  field_step,d1
+    ext.l   d1
+    add.l   d1,moire_idx
+
+    move.w  d6,d0
+    move.w  d4,d1
+    bsr     .emit
+
+    cmp.w   #SCR_PAGES,d6
+    bcc.s   .high
+    move.w  d6,d0
+    add.w   #RANGE_PAGES,d0
+    move.w  d4,d1
+    bsr     .emit
+    bra.s   .done
+.high:
+    cmp.w   #RANGE_PAGES,d6
+    bcs.s   .done               ; pages 125..127 are never mirrored
+    move.w  d6,d0
+    sub.w   #RANGE_PAGES,d0
+    move.w  d4,d1
+    bsr     .emit
+.done:
+    movem.l (sp)+,d0-d7/a0-a2
+    rts
+.emit:
+    tst.b   d5
+    bne.s   .noise
+    bra     fill_page
+.noise:
+    bra     fill_page_noise
+
+;======================================================================
+; SCENE 3 -- MOIRE
+; Each pair of rows gets one repeating 16-bit stripe pattern, indexed by
+; an accumulator that drifts down the screen. Two nearby frequencies beat
+; against each other and you get interference bands. Half the screen is
+; redrawn per frame to stay inside the budget; at 71Hz the alternation
+; reads as shimmer rather than flicker.
+;======================================================================
+moire_init:
+    clr.w   moire_half
+    move.w  #$0140,moire_step
+    clr.w   moire_phase
+    rts
+
+moire_frame:
+    move.w  moire_phase,d0
+    add.w   #$0060,d0
+    move.w  d0,moire_phase
+
+    move.w  moire_half,d0
+    eor.w   #1,moire_half
+    move.w  half_rows,d1
+    mulu    d0,d1               ; start row
+    move.w  d1,d2
+    mulu    row_bytes,d2
+    move.l  cur_base,a3
+    add.l   d2,a3               ; a3 = dest row pointer
+
+    ; index accumulator = phase + startrow*step
+    move.w  moire_step,d4
+    mulu    d4,d1
+    add.w   moire_phase,d1
+    move.w  d1,d5               ; d5 = running index
+
+    move.w  half_rows,d6
+    lsr.w   #1,d6               ; row pairs to draw
+    subq.w  #1,d6
+
+    move.w  row_bytes,d7
+    add.w   d7,d7               ; bytes per row pair
+    ext.l   d7
+
+    lea     stripe_tbl,a4
+.rowpair:
+    move.w  d5,d0
+    lsr.w   #8,d0
+    add.w   d0,d0
+    move.w  (a4,d0.w),d0        ; stripe pattern word
+    move.w  d0,d1
+    swap    d1
+    move.w  d0,d1               ; duplicate into a longword
+
+    movem.l d4-d7/a3-a4,-(sp)
+    move.l  a3,a0
+    move.l  a3,a1
+    add.l   d7,a1
+    move.l  d1,d0
+    bsr     fill_pattern
+    movem.l (sp)+,d4-d7/a3-a4
+
+    add.l   d7,a3
+    add.w   d4,d5
+    add.w   d4,d5
+    dbra    d6,.rowpair
+    rts
+
+;======================================================================
+; SCENE 4 -- STROBE
+; A static moire plate, flipped black-for-white by rewriting palette
+; register 0. In ST mono that one register inverts the entire display,
+; so a full-screen strobe costs a single word write per frame.
+;
+; NOTE: full-screen flashing is a photosensitive-seizure risk. This is
+; deliberately gated on the envelope and limited to ~12Hz rather than
+; free-running at 71Hz. See the README before using it in front of an
+; audience.
+;======================================================================
+strobe_init:
+    clr.w   strobe_ctr
+    ; lay down a static plate: stripe patterns straight down the screen
+    move.l  cur_base,a3
+    move.w  scr_rows,d6
+    lsr.w   #1,d6
+    subq.w  #1,d6
+    move.w  row_bytes,d7
+    add.w   d7,d7
+    ext.l   d7
+    moveq   #0,d5
+    lea     stripe_tbl,a4
+.rowpair:
+    move.w  d5,d0
+    lsr.w   #8,d0
+    add.w   d0,d0
+    move.w  (a4,d0.w),d0
+    move.w  d0,d1
+    swap    d1
+    move.w  d0,d1
+
+    movem.l d5-d7/a3-a4,-(sp)
+    move.l  a3,a0
+    move.l  a3,a1
+    add.l   d7,a1
+    move.l  d1,d0
+    bsr     fill_pattern
+    movem.l (sp)+,d5-d7/a3-a4
+
+    add.l   d7,a3
+    add.w   #$01c0,d5
+    dbra    d6,.rowpair
+    rts
+
+strobe_frame:
+    addq.w  #1,strobe_ctr
+    move.w  level,d0
+    beq.s   .normal
+    move.w  strobe_ctr,d1
+    and.w   #3,d1
+    bne.s   .hold
+    move.w  invert_flag,d1
+    eor.w   #1,d1
+    move.w  d1,invert_flag
+.hold:
+    tst.w   invert_flag
+    beq.s   .normal
+    move.w  #$777,PALETTE_HW
+    rts
+.normal:
+    move.w  #$000,PALETTE_HW
+    rts
+
+;======================================================================
+; shared bits
+;======================================================================
+next_rng:
+    move.l  rng_state,d3
+    move.l  d3,d4
+    lsl.l   #3,d4
+    eor.l   d4,d3
+    move.l  d3,d4
+    lsr.l   #5,d4
+    eor.l   d4,d3
+    move.l  d3,rng_state
+    rts
+
+decay_level:
+    cmp.w   #150,idle_ticks
+    bcc.s   .freerun
+    addq.w  #1,idle_ticks
+    bra.s   .decay
+.freerun:
+    addq.w  #1,demo_ctr
+    cmp.w   #25,demo_ctr
+    bcs.s   .decay
+    clr.w   demo_ctr
+    move.w  #$ff,level
+.decay:
+    move.w  level,d0
+    sub.w   #LEVEL_DECAY,d0
+    bpl.s   .ok
+    moveq   #0,d0
+.ok:
+    move.w  d0,level
+    rts
+
+do_auto_cycle:
+    tst.w   auto_cycle
+    beq.s   .no
+    addq.w  #1,cycle_ctr
+    cmp.w   #CYCLE_FRAMES,cycle_ctr
+    bcs.s   .no
+    move.w  scene,d0
+    addq.w  #1,d0
+    cmp.w   #SC_COUNT,d0
+    bcs.s   .ok
+    moveq   #0,d0
+.ok:
+    move.w  d0,scene
+    bsr     scene_enter
+.no:
+    rts
+
+    if DIAG
+; a bar along the top row: one byte per overrun in the last 64 frames
+draw_overrun_bar:
+    move.l  cur_base,a0
+    ; blank the top row first, so the bar is the only thing on it and can be
+    ; read back out of a screen capture whatever the scene is painting
+    move.l  a0,a1
+    move.w  row_bytes,d0
+    lsr.w   #2,d0
+    subq.w  #1,d0
+    moveq   #0,d1
+.clr:
+    move.l  d1,(a1)+
+    dbra    d0,.clr
+    moveq   #0,d1
+    move.w  overrun_disp,d1
+    beq.s   .none
+    cmp.w   #64,d1
+    bcs.s   .ok
+    moveq   #64,d1
+.ok:
+    subq.w  #1,d1
+.lp:
+    move.b  #$ff,(a0)+
+    dbra    d1,.lp
+.none:
+    rts
+    endif
+
+;----------------------------------------------------------------------
+poll_midi:
+.next:
+    move.w  #DEV_MIDI,-(sp)
+    move.w  #B_BCONSTAT,-(sp)
+    trap    #13
+    addq.l  #4,sp
+    tst.w   d0
+    beq     .empty
+
+    move.w  #DEV_MIDI,-(sp)
+    move.w  #B_BCONIN,-(sp)
+    trap    #13
+    addq.l  #4,sp
+
+    and.w   #$ff,d0
+    cmp.b   #$f8,d0
+    bcc     .realtime
+    btst    #7,d0
+    bne.s   .status
+    bra.s   .data
+
+.status:
+    move.b  d0,midi_status
+    clr.w   midi_count
+    bra     .next
+
+.data:
+    move.w  midi_count,d1
+    bne.s   .second
+    move.b  d0,midi_d1
+    move.w  #1,midi_count
+    bra     .next
+.second:
+    clr.w   midi_count
+    move.b  midi_status,d1
+    and.b   #$f0,d1
+    cmp.b   #$90,d1
+    bne     .next
+    tst.b   d0
+    beq     .next
+    lsl.w   #1,d0
+    cmp.w   #$ff,d0
+    bcs.s   .noclip
+    move.w  #$ff,d0
+.noclip:
+    move.w  d0,level
+    clr.w   idle_ticks
+    ; note number nudges the moire frequency, so pitch changes the pattern
+    moveq   #0,d1
+    move.b  midi_d1,d1
+    move.w  d1,d2
+    lsl.w   #3,d2
+    add.w   #$0080,d2
+    move.w  d2,moire_step       ; legacy moire scene
+    ; Pads, not pitch: fold the note onto one of 8 slots. Masking with 7
+    ; means any run of 8 notes lands on 8 distinct patterns, so this works
+    ; whatever the controller's base note happens to be.
+    sub.w   #PAD_BASE,d1
+    and.w   #7,d1
+    add.w   d1,d1
+    lea     pad_tbl,a0
+    move.w  (a0,d1.w),d1
+    move.w  d1,field_step
+    bra     .next
+
+.realtime:
+    cmp.b   #$f8,d0
+    bne     .next
+    move.w  level,d1
+    cmp.w   #$40,d1
+    bcc     .next
+    move.w  #$40,level
+    clr.w   idle_ticks
+    bra     .next
+
+.empty:
+    rts
+
+;----------------------------------------------------------------------
+poll_keyboard:
+    move.w  #GD_CCONIS,-(sp)
+    trap    #1
+    addq.l  #2,sp
+    tst.w   d0
+    beq.s   .none
+
+    move.w  #GD_CNECIN,-(sp)
+    trap    #1
+    addq.l  #2,sp
+
+    cmp.b   #27,d0
+    beq.s   .quit
+    cmp.b   #'0',d0
+    beq.s   .setauto
+    cmp.b   #'1',d0
+    bcs.s   .hit
+    cmp.b   #'4'+1,d0
+    bcc.s   .hit
+    ; 1..4 -> pick a scene by hand
+    and.w   #$ff,d0
+    sub.w   #'1',d0
+    move.w  d0,scene
+    clr.w   auto_cycle
+    bsr     scene_enter
+    rts
+.setauto:
+    move.w  #1,auto_cycle
+    rts
+.hit:
+    move.w  #$ff,level
+    clr.w   idle_ticks
+.none:
+    rts
+.quit:
+    move.w  #1,quit_flag
+    rts
+
+;----------------------------------------------------------------------
+    section data
+    even
+scene_init_tbl:
+    dc.l    field_init, moire_init, band_init, strobe_init
+scene_frame_tbl:
+    dc.l    field_frame, moire_frame, band_frame, strobe_frame
+; one stripe frequency per pad, spread wide enough to read as 8 different
+; pictures rather than eight shades of the same one
+pad_tbl:
+    dc.w    128, 256, 512, 896, 1280, 1792, 2560, 3584
+new_pal:
+    dc.w    $000,$777,$111,$666,$222,$555,$333,$444
+    dc.w    $700,$070,$007,$770,$707,$077,$444,$777
+
+    section bss
+    even
+old_ssp:        ds.l 1
+old_phys:       ds.l 1
+buf_base:       ds.l 1
+cur_base:       ds.l 1
+prev_ptr:       ds.l 1
+rng_state:      ds.l 1
+moire_idx:      ds.l 1
+last_vbl:       ds.l 1
+rez:            ds.w 1
+row_bytes:      ds.w 1
+scr_rows:       ds.w 1
+half_rows:      ds.w 1
+max_rows:       ds.w 1
+level:          ds.w 1
+prev_chunks:    ds.w 1
+pool_off:       ds.w 1
+quit_flag:      ds.w 1
+midi_count:     ds.w 1
+idle_ticks:     ds.w 1
+demo_ctr:       ds.w 1
+scene:          ds.w 1
+auto_cycle:     ds.w 1
+cycle_ctr:      ds.w 1
+base_page:      ds.w 1
+field_step:     ds.w 1
+moire_half:     ds.w 1
+moire_step:     ds.w 1
+moire_phase:    ds.w 1
+strobe_ctr:     ds.w 1
+invert_flag:    ds.w 1
+overrun_acc:    ds.w 1
+overrun_disp:   ds.w 1
+window_ctr:     ds.w 1
+midi_status:    ds.b 1
+midi_d1:        ds.b 1
+    even
+old_pal:        ds.w 16
+stripe_tbl:     ds.w 256
+    even
+noise_pool:     ds.b POOL_SIZE
+    even
+screen_mem:     ds.b BUF_TOTAL+256

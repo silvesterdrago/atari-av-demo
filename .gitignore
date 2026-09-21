@@ -1,0 +1,12 @@
+# built toolchain (bootstrapped by `make tools`)
+tools/vasm/
+tools/vlink/
+tools/*.tar.gz
+tools/midibridge
+
+# build output
+dist/
+dist-*/
+*.o
+
+.DS_Store

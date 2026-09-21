@@ -28,6 +28,11 @@ PAD_BASE    equ 36
     ifnd FORCEGLITCH
 FORCEGLITCH equ 0
     endif
+    ; -DFAKEMIDI=1 ticks the MIDI counter once per frame, to prove the
+    ; diagnostic bar itself works before trusting what it says
+    ifnd FAKEMIDI
+FAKEMIDI    equ 0
+    endif
 
 ; ---- GEMDOS (trap #1) ------------------------------------------------
 GD_PTERM0   equ 0
@@ -52,6 +57,15 @@ SCR_HI      equ $ffff8201       ; screen base, bits 16-23
 SCR_MID     equ $ffff8203       ; screen base, bits 8-15
                                 ; (no low byte on a plain ST: 256-byte steps)
 PALETTE_HW  equ $ffff8240
+ACIA_MIDI_CTRL equ $fffffc04    ; 6850 status: bit 0 = receive data full
+ACIA_MIDI_DATA equ $fffffc06
+ACIA_RX_ON  equ $95             ; /16, 8N1, receive interrupt enabled
+VEC_ACIA    equ $118            ; MFP channel 6 -- shared by IKBD and MIDI
+MFP_IERB    equ $fffffa09       ; bit 6 = ACIA interrupt enable
+MFP_IMRB    equ $fffffa15       ; bit 6 = ACIA interrupt mask
+
+MIDI_RING   equ 256             ; power of two
+MIDI_MASK   equ MIDI_RING-1
 VBCLOCK     equ $462            ; system VBL counter
 
 SCR_SIZE    equ 32000
@@ -142,6 +156,7 @@ start:
     and.l   #$ffffff00,d0
     move.l  d0,buf_base
 
+    bsr     install_midi
     bsr     build_noise_pool
     bsr     build_stripe_tbl
 
@@ -160,6 +175,9 @@ start:
 ;----------------------------------------------------------------------
 mainloop:
     bsr     wait_vbl
+    if FAKEMIDI
+    addq.w  #1,midi_bytes
+    endif
     bsr     measure_overrun
 
     ; --- run the current scene ---------------------------------------
@@ -173,6 +191,12 @@ mainloop:
     bsr     draw_overrun_bar
     endif
 
+    if DIAG
+    btst    #0,ACIA_MIDI_CTRL   ; did a byte land in the 6850 at all?
+    beq.s   .noacia
+    addq.w  #1,acia_seen
+.noacia:
+    endif
     bsr     poll_midi
     bsr     poll_keyboard
     bsr     decay_level
@@ -183,6 +207,7 @@ mainloop:
 
 ;----------------------------------------------------------------------
 exit:
+    bsr     remove_midi
     ; hand the machine back exactly as we found it
     move.w  #-1,-(sp)
     move.l  old_phys,-(sp)
@@ -208,6 +233,87 @@ exit:
 
     clr.w   -(sp)
     trap    #1
+
+;----------------------------------------------------------------------
+; Read the MIDI ACIA ourselves instead of going through the BIOS.
+;
+; Two reasons. The BIOS costs a trap per byte, which will not survive MIDI
+; clock at 24 ppqn plus notes. And more urgently, it does not work: under
+; EmuTOS bytes arrive in the 6850 and simply sit there with RDRF stuck on,
+; because nothing services the receive interrupt, so Bconstat(3) reports an
+; empty buffer forever. Measured with the DIAG build: the 6850 bar full,
+; the BIOS bar flat zero.
+;
+; MFP channel 6 is shared with the keyboard ACIA, so we drain MIDI and then
+; chain to whatever was there before, which still services the IKBD.
+;----------------------------------------------------------------------
+install_midi:
+    clr.w   midi_head
+    clr.w   midi_tail
+    move.w  sr,-(sp)
+    move.w  #$2700,sr           ; no interrupts while we swap the vector
+    move.b  #ACIA_RX_ON,ACIA_MIDI_CTRL
+    bset    #6,MFP_IERB         ; make sure channel 6 is actually enabled
+    bset    #6,MFP_IMRB
+    move.l  VEC_ACIA,old_acia
+    move.l  #midi_isr,VEC_ACIA
+    ; A byte already sitting in the 6850 leaves RDRF stuck on, and there is
+    ; no fresh edge to interrupt on, so clear it out before we start.
+    bsr     drain_acia
+    move.w  (sp)+,sr
+    rts
+
+remove_midi:
+    move.w  sr,-(sp)
+    move.w  #$2700,sr
+    move.l  old_acia,VEC_ACIA
+    move.w  (sp)+,sr
+    rts
+
+;----------------------------------------------------------------------
+; Pull whatever is in the 6850 into the ring. Called from the interrupt
+; and, as a safety net, once per frame -- if the interrupt never fires we
+; still make progress instead of jamming on one unread byte.
+;----------------------------------------------------------------------
+drain_acia:
+    movem.l d0-d1/a0,-(sp)
+.lp:
+    btst    #0,ACIA_MIDI_CTRL
+    beq.s   .out
+    move.b  ACIA_MIDI_DATA,d0
+    move.w  midi_head,d1
+    lea     midi_ring,a0
+    move.b  d0,(a0,d1.w)
+    addq.w  #1,d1
+    and.w   #MIDI_MASK,d1
+    cmp.w   midi_tail,d1
+    beq.s   .lp                 ; ring full: drop, but keep clearing the 6850
+    move.w  d1,midi_head
+    bra.s   .lp
+.out:
+    movem.l (sp)+,d0-d1/a0
+    rts
+
+midi_isr:
+    movem.l d0-d1/a0,-(sp)
+.drain:
+    btst    #0,ACIA_MIDI_CTRL
+    beq.s   .done
+    move.b  ACIA_MIDI_DATA,d0
+    move.w  midi_head,d1
+    lea     midi_ring,a0
+    move.b  d0,(a0,d1.w)
+    addq.w  #1,d1
+    and.w   #MIDI_MASK,d1
+    cmp.w   midi_tail,d1
+    beq.s   .full               ; would overtake the reader: drop it instead
+    move.w  d1,midi_head
+.full:
+    bra.s   .drain
+.done:
+    movem.l (sp)+,d0-d1/a0
+    move.l  old_acia,-(sp)
+    rts                         ; chain onward; the old handler does the rte
 
 ;----------------------------------------------------------------------
 wait_vbl:
@@ -238,6 +344,8 @@ measure_overrun:
     clr.w   overrun_acc
     move.w  midi_bytes,midi_disp
     clr.w   midi_bytes
+    move.w  acia_seen,acia_disp
+    clr.w   acia_seen
 .done:
     rts
 
@@ -1043,24 +1151,51 @@ draw_overrun_bar:
     move.b  #$ff,(a0)+
     dbra    d1,.lp2
 .none2:
+    ; third bar, eight rows down: bytes seen sitting in the 6850 itself.
+    ; Lit here but bar two empty means TOS is eating them.
+    move.l  cur_base,a0
+    move.w  row_bytes,d0
+    lsl.w   #3,d0
+    adda.w  d0,a0
+    move.l  a0,a1
+    move.w  row_bytes,d0
+    lsr.w   #2,d0
+    subq.w  #1,d0
+    moveq   #0,d1
+.clr3:
+    move.l  d1,(a1)+
+    dbra    d0,.clr3
+    move.w  acia_disp,d1
+    beq.s   .none3
+    cmp.w   #64,d1
+    bcs.s   .ok3
+    moveq   #64,d1
+.ok3:
+    subq.w  #1,d1
+.lp3:
+    move.b  #$ff,(a0)+
+    dbra    d1,.lp3
+.none3:
     rts
     endif
 
 ;----------------------------------------------------------------------
 poll_midi:
+    move.w  sr,-(sp)
+    move.w  #$2700,sr           ; keep the ISR out while we touch midi_head
+    bsr     drain_acia
+    move.w  (sp)+,sr
 .next:
-    move.w  #DEV_MIDI,-(sp)
-    move.w  #B_BCONSTAT,-(sp)
-    trap    #13
-    addq.l  #4,sp
-    tst.w   d0
+    move.w  midi_tail,d1
+    cmp.w   midi_head,d1
     beq     .empty
-
+    lea     midi_ring,a0
+    moveq   #0,d0
+    move.b  (a0,d1.w),d0
+    addq.w  #1,d1
+    and.w   #MIDI_MASK,d1
+    move.w  d1,midi_tail
     addq.w  #1,midi_bytes
-    move.w  #DEV_MIDI,-(sp)
-    move.w  #B_BCONIN,-(sp)
-    trap    #13
-    addq.l  #4,sp
 
     and.w   #$ff,d0
     cmp.b   #$f8,d0
@@ -1193,6 +1328,7 @@ new_pal:
     section bss
     even
 old_ssp:        ds.l 1
+old_acia:       ds.l 1
 old_phys:       ds.l 1
 buf_base:       ds.l 1
 cur_base:       ds.l 1
@@ -1226,10 +1362,16 @@ invert_flag:    ds.w 1
 overrun_acc:    ds.w 1
 midi_bytes:     ds.w 1
 midi_disp:      ds.w 1
+midi_head:      ds.w 1
+midi_tail:      ds.w 1
+acia_seen:      ds.w 1
+acia_disp:      ds.w 1
 overrun_disp:   ds.w 1
 window_ctr:     ds.w 1
 midi_status:    ds.b 1
 midi_d1:        ds.b 1
+    even
+midi_ring:      ds.b MIDI_RING
     even
 cube_level:     ds.w 8
 cube_angle:     ds.w 8

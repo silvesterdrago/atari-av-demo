@@ -152,14 +152,41 @@ MIDI from the loop.
 
 ## Known limits, and what they cost
 
-1. **MIDI goes through the BIOS** (`Bconstat`/`Bconin`), one trap per byte.
-   Fine at this density; will eat frame time once MIDI clock at 24 ppqn is
-   added. Fix: our own 6850 ACIA interrupt handler with a ring buffer.
+1. ~~MIDI goes through the BIOS~~ — **done**, see below.
 2. **Single buffered**, so fast changes tear. Fix: two framebuffers, flip on
    the screen base register. Costs 32 KB.
 3. **Erase-then-fill overdraws** the overlap in the Band scene.
 4. Tested against **EmuTOS 1.4.0**; the real machine runs Atari TOS 1.04 (DE).
    All calls used are standard TOS 1.x, but confirm on hardware.
+
+## MIDI input
+
+The program reads the 6850 MIDI ACIA directly, into a 256-byte ring buffer,
+rather than going through the BIOS. Two reasons.
+
+The BIOS costs a `trap` per byte, which will not survive MIDI clock at 24 ppqn
+alongside notes.
+
+More urgently, **it does not work**. Under EmuTOS, bytes arrive in the 6850 and
+sit there with RDRF stuck on, because nothing services the receive interrupt,
+so `Bconstat(3)` reports an empty buffer forever. This was measured, not
+guessed: the DIAG build carries three bars — frame overruns, bytes consumed by
+the program, and bytes visible in the 6850 itself. With the BIOS path the third
+bar was solid and the second was flat zero, with a no-MIDI control run showing
+the third bar empty to prove the probe meant something.
+
+What it takes to actually receive a byte:
+
+* set the ACIA control register to `$95` (/16, 8N1, receive interrupt on)
+* enable MFP channel 6 in `IERB` and `IMRB` — it is shared with the keyboard
+* install a handler on the vector at `$118`, drain the ACIA into the ring, then
+  chain to the previous handler so the keyboard keeps working
+* **drain any byte already sitting in the ACIA when installing.** A stuck RDRF
+  means there is no fresh edge to interrupt on, and one unread byte jams the
+  port permanently. This is what made it look like "MIDI worked the first time
+  and never again"
+* keep draining once per frame as a safety net, so a missed interrupt costs a
+  byte rather than the whole session
 
 ## Safety
 

@@ -23,6 +23,11 @@ AUTOCYCLE   equ 0
     ifnd PAD_BASE
 PAD_BASE    equ 36
     endif
+    ; -DFORCEGLITCH=1 tears every cube every frame, so the glitch renderer
+    ; can be checked without depending on MIDI delivery
+    ifnd FORCEGLITCH
+FORCEGLITCH equ 0
+    endif
 
 ; ---- GEMDOS (trap #1) ------------------------------------------------
 GD_PTERM0   equ 0
@@ -63,11 +68,24 @@ POOL_MASK   equ $3ffc
 LEVEL_DECAY equ 6
 CYCLE_FRAMES equ 400            ; auto-cycle dwell, ~5.6s at 71Hz
 
-SC_FIELD    equ 0             ; moire generated into a scrolling field
-SC_MOIRE    equ 1             ; the original full-redraw moire, kept for reference
-SC_BAND     equ 2
-SC_STROBE   equ 3
-SC_COUNT    equ 4
+SC_CUBES    equ 0             ; 4x2 grid of pulsing wireframe cubes, one per pad
+SC_FIELD    equ 1             ; moire generated into a scrolling field
+SC_MOIRE    equ 2             ; the original full-redraw moire, kept for reference
+SC_BAND     equ 3
+SC_STROBE   equ 4
+SC_COUNT    equ 5
+
+; Cube sprites are baked by tools/gencubes.py -- drawing 8 wireframe cubes
+; with real line code would cost ~90k of our ~112k cycles before erasing.
+CUBE_W_BYTES  equ 12            ; 96 px
+CUBE_H        equ 96
+CUBE_SPRITE   equ CUBE_W_BYTES*CUBE_H
+CUBE_ANGLES   equ 16
+CUBE_SCALES   equ 8
+CUBE_DECAY    equ 5
+GLITCH_VEL    equ $d0           ; hit this hard and the cube tears
+GLITCH_FRAMES equ 14
+SHEAR_VEL     equ $e0           ; and the whole picture slips sideways
 
     section text
 
@@ -218,6 +236,8 @@ measure_overrun:
     clr.w   window_ctr
     move.w  overrun_acc,overrun_disp
     clr.w   overrun_acc
+    move.w  midi_bytes,midi_disp
+    clr.w   midi_bytes
 .done:
     rts
 
@@ -404,6 +424,221 @@ band_frame:
     add.w   d4,a2
     bsr     fill_span
 .done:
+    rts
+
+;======================================================================
+; SCENE 0 -- CUBES
+;
+; A 4x2 grid of wireframe cubes, laid out to match the pads on the
+; controller: pad 1 is top-left, pad 8 is bottom-right. Hitting a pad
+; pulses its cube; velocity sets how big it swells and how fast it spins,
+; and the swell decays back down.
+;
+; The rotation is not computed here. Line-drawing 8 cubes would cost about
+; 90k of the frame's ~112k cycles before erasing anything, so the frames are
+; baked into sprites by tools/gencubes.py and the ST only copies them. Each
+; tile is opaque and covers the cube's whole box, so there is no erase pass:
+; one write per cube per frame.
+;
+; Glitches ride on velocity. A hard hit tears that cube horizontally -- the
+; destination address is nudged sideways every 8 rows while it blits. Hit
+; harder still and the whole picture slips, which costs nothing because it
+; is only the screen base register moving.
+;======================================================================
+cubes_init:
+    ; the grid: four cells across, two down
+    move.w  row_bytes,d5
+    lsr.w   #2,d5               ; cell width in bytes (20 in mono)
+    move.w  scr_rows,d6
+    lsr.w   #1,d6               ; cell height in rows (200 in mono)
+    move.w  d5,d2
+    sub.w   #CUBE_W_BYTES,d2
+    lsr.w   #1,d2               ; box x offset inside the cell
+    move.w  d6,d3
+    sub.w   #CUBE_H,d3
+    lsr.w   #1,d3               ; box y offset inside the cell
+
+    lea     cube_org,a0
+    moveq   #0,d4
+.mk:
+    move.w  d4,d0
+    and.w   #3,d0
+    mulu    d5,d0
+    add.w   d2,d0
+    and.l   #$ffff,d0           ; byte within the row
+    move.w  d4,d1
+    lsr.w   #2,d1
+    mulu    d6,d1
+    add.w   d3,d1
+    and.l   #$ffff,d1
+    mulu    row_bytes,d1        ; -> byte offset of the box top
+    add.l   d0,d1
+    move.l  buf_base,a1
+    add.l   d1,a1
+    move.l  a1,(a0)+
+    addq.w  #1,d4
+    cmp.w   #8,d4
+    bcs.s   .mk
+
+    ; clear a little past the visible screen so the shear glitch slides
+    ; black into view rather than whatever the last scene left behind
+    move.l  buf_base,a0
+    move.l  a0,a1
+    add.l   #SCR_SIZE+1024,a1
+    bsr     clear_span
+
+    lea     cube_level,a0
+    moveq   #(8*3)-1,d0         ; level, angle and glitch, 8 words each
+.zap:
+    clr.w   (a0)+
+    dbra    d0,.zap
+    clr.w   cubes_idle
+    rts
+
+cubes_frame:
+    ; with nothing plugged in, punch cubes at random so the screen lives
+    cmp.w   #150,idle_ticks
+    bcs.s   .nofree
+    addq.w  #1,cubes_idle
+    cmp.w   #14,cubes_idle
+    bcs.s   .nofree
+    clr.w   cubes_idle
+    bsr     next_rng
+    move.w  d3,d0
+    and.w   #7,d0
+    add.w   d0,d0
+    lea     cube_level,a0
+    move.w  #$ff,(a0,d0.w)
+.nofree:
+
+    moveq   #0,d7
+.each:
+    move.w  d7,d0
+    add.w   d0,d0               ; word index
+
+    ; --- swell decays back down
+    lea     cube_level,a0
+    move.w  (a0,d0.w),d1
+    sub.w   #CUBE_DECAY,d1
+    bpl.s   .lv
+    moveq   #0,d1
+.lv:
+    move.w  d1,(a0,d0.w)
+
+    ; --- spin: always turning, faster while it is swollen
+    lea     cube_angle,a0
+    move.w  (a0,d0.w),d2
+    move.w  d1,d3
+    lsr.w   #4,d3
+    addq.w  #6,d3
+    add.w   d3,d2
+    move.w  d2,(a0,d0.w)
+
+    ; --- glitch runs out on its own
+    lea     cube_glitch,a0
+    move.w  (a0,d0.w),d4
+    beq.s   .noglitch
+    subq.w  #1,d4
+    move.w  d4,(a0,d0.w)
+.noglitch:
+
+    ; --- which sprite: scale from the swell, angle from the spin
+    move.w  d1,d5
+    lsr.w   #5,d5
+    cmp.w   #CUBE_SCALES,d5
+    bcs.s   .sok
+    moveq   #CUBE_SCALES-1,d5
+.sok:
+    move.w  d2,d6
+    lsr.w   #8,d6
+    and.w   #CUBE_ANGLES-1,d6
+    mulu    #CUBE_ANGLES,d5
+    add.w   d6,d5
+    mulu    #CUBE_SPRITE,d5
+    lea     cube_data,a1
+    add.l   d5,a1
+
+    move.w  d7,d6
+    lsl.w   #2,d6
+    lea     cube_org,a0
+    move.l  (a0,d6.w),a0
+
+    if FORCEGLITCH
+    bsr     blit_cube_glitch
+    bra.s   .next
+    endif
+    tst.w   d4
+    bne.s   .torn
+    bsr     blit_cube
+    bra.s   .next
+.torn:
+    bsr     blit_cube_glitch
+.next:
+    addq.w  #1,d7
+    cmp.w   #8,d7
+    bcs     .each
+
+    ; --- the whole picture slips on a really hard hit. Two byte writes.
+    move.l  buf_base,d0
+    cmp.w   #SHEAR_VEL,level
+    bcs.s   .noshear
+    bsr     next_rng
+    move.w  d3,d1
+    and.w   #3,d1
+    lsl.w   #8,d1
+    and.l   #$ffff,d1
+    add.l   d1,d0
+.noshear:
+    bsr     set_screen_base
+    rts
+
+;----------------------------------------------------------------------
+; a0 = destination on screen, a1 = sprite. Tiles are opaque, so this is
+; the only write the cube needs -- nothing to erase first.
+;----------------------------------------------------------------------
+blit_cube:
+    movem.l d0-d7/a0-a3,-(sp)
+    move.w  row_bytes,d1
+    move.w  #CUBE_H-1,d0
+.row:
+    move.l  (a1)+,(a0)
+    move.l  (a1)+,4(a0)
+    move.l  (a1)+,8(a0)
+    adda.w  d1,a0
+    dbra    d0,.row
+    movem.l (sp)+,d0-d7/a0-a3
+    rts
+
+;----------------------------------------------------------------------
+; Same, but the destination slides sideways a few bytes every 8 rows, so
+; the cube comes out sheared into horizontal slabs.
+;----------------------------------------------------------------------
+blit_cube_glitch:
+    movem.l d0-d7/a0-a3,-(sp)
+    move.w  row_bytes,d1
+    move.l  a0,a3               ; destination box -- deliberately fixed
+    moveq   #(CUBE_H/8)-1,d0    ; twelve blocks of eight rows
+.blk:
+    bsr     next_rng            ; only touches d3/d4
+    move.w  d3,d5
+    and.w   #7,d5
+    subq.w  #4,d5
+    add.w   d5,d5               ; -8..+6 bytes, and EVEN: a move.l to an odd
+                                ; address is an address error on a 68000
+    ; Shift what we read, not where we write. Moving the destination would
+    ; smear pixels outside the box, and nothing ever erases out there.
+    move.l  a1,a2
+    adda.w  d5,a2
+    moveq   #7,d6
+.row:
+    move.l  (a2)+,(a3)
+    move.l  (a2)+,4(a3)
+    move.l  (a2)+,8(a3)
+    adda.w  d1,a3
+    dbra    d6,.row
+    lea     (CUBE_W_BYTES*8)(a1),a1
+    dbra    d0,.blk
+    movem.l (sp)+,d0-d7/a0-a3
     rts
 
 ;======================================================================
@@ -783,6 +1018,31 @@ draw_overrun_bar:
     move.b  #$ff,(a0)+
     dbra    d1,.lp
 .none:
+    ; second bar, four rows down: MIDI bytes consumed in the last 64 frames.
+    ; Empty here means nothing is reaching the ACIA at all.
+    move.l  cur_base,a0
+    move.w  row_bytes,d0
+    lsl.w   #2,d0
+    adda.w  d0,a0
+    move.l  a0,a1
+    move.w  row_bytes,d0
+    lsr.w   #2,d0
+    subq.w  #1,d0
+    moveq   #0,d1
+.clr2:
+    move.l  d1,(a1)+
+    dbra    d0,.clr2
+    move.w  midi_disp,d1
+    beq.s   .none2
+    cmp.w   #64,d1
+    bcs.s   .ok2
+    moveq   #64,d1
+.ok2:
+    subq.w  #1,d1
+.lp2:
+    move.b  #$ff,(a0)+
+    dbra    d1,.lp2
+.none2:
     rts
     endif
 
@@ -796,6 +1056,7 @@ poll_midi:
     tst.w   d0
     beq     .empty
 
+    addq.w  #1,midi_bytes
     move.w  #DEV_MIDI,-(sp)
     move.w  #B_BCONIN,-(sp)
     trap    #13
@@ -846,10 +1107,17 @@ poll_midi:
     ; whatever the controller's base note happens to be.
     sub.w   #PAD_BASE,d1
     and.w   #7,d1
-    add.w   d1,d1
+    add.w   d1,d1               ; d1 = pad index * 2
     lea     pad_tbl,a0
-    move.w  (a0,d1.w),d1
-    move.w  d1,field_step
+    move.w  (a0,d1.w),d2
+    move.w  d2,field_step
+    ; cubes scene: swell the matching cube, and tear it on a hard hit
+    lea     cube_level,a0
+    move.w  d0,(a0,d1.w)
+    cmp.w   #GLITCH_VEL,d0
+    bcs     .next
+    lea     cube_glitch,a0
+    move.w  #GLITCH_FRAMES,(a0,d1.w)
     bra     .next
 
 .realtime:
@@ -883,7 +1151,7 @@ poll_keyboard:
     beq.s   .setauto
     cmp.b   #'1',d0
     bcs.s   .hit
-    cmp.b   #'4'+1,d0
+    cmp.b   #'5'+1,d0
     bcc.s   .hit
     ; 1..4 -> pick a scene by hand
     and.w   #$ff,d0
@@ -908,13 +1176,16 @@ poll_keyboard:
     section data
     even
 scene_init_tbl:
-    dc.l    field_init, moire_init, band_init, strobe_init
+    dc.l    cubes_init, field_init, moire_init, band_init, strobe_init
 scene_frame_tbl:
-    dc.l    field_frame, moire_frame, band_frame, strobe_frame
+    dc.l    cubes_frame, field_frame, moire_frame, band_frame, strobe_frame
 ; one stripe frequency per pad, spread wide enough to read as 8 different
 ; pictures rather than eight shades of the same one
 pad_tbl:
     dc.w    128, 256, 512, 896, 1280, 1792, 2560, 3584
+    even
+cube_data:
+    incbin  "src/cubes.bin"
 new_pal:
     dc.w    $000,$777,$111,$666,$222,$555,$333,$444
     dc.w    $700,$070,$007,$770,$707,$077,$444,$777
@@ -946,16 +1217,25 @@ auto_cycle:     ds.w 1
 cycle_ctr:      ds.w 1
 base_page:      ds.w 1
 field_step:     ds.w 1
+cubes_idle:     ds.w 1
 moire_half:     ds.w 1
 moire_step:     ds.w 1
 moire_phase:    ds.w 1
 strobe_ctr:     ds.w 1
 invert_flag:    ds.w 1
 overrun_acc:    ds.w 1
+midi_bytes:     ds.w 1
+midi_disp:      ds.w 1
 overrun_disp:   ds.w 1
 window_ctr:     ds.w 1
 midi_status:    ds.b 1
 midi_d1:        ds.b 1
+    even
+cube_level:     ds.w 8
+cube_angle:     ds.w 8
+cube_glitch:    ds.w 8
+    even
+cube_org:       ds.l 8
     even
 old_pal:        ds.w 16
 stripe_tbl:     ds.w 256

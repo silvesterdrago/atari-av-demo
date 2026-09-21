@@ -24,8 +24,12 @@ MIDIOPTS := --midi-in $(FIFO) --midi-out /dev/null
 
 all: $(TARGET)
 
-$(TARGET): src/main.s | $(VASM) dist
+$(TARGET): src/main.s src/cubes.bin | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
+
+# Wireframe cube frames, baked offline -- see the header of gencubes.py
+src/cubes.bin: tools/gencubes.py
+	python3 tools/gencubes.py
 
 dist:
 	@mkdir -p dist
@@ -78,7 +82,7 @@ diag: | $(VASM)
 
 clean:
 	rm -rf dist dist-*
-	rm -f $(BRIDGE)
+	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
 
 distclean: clean
 	rm -rf tools/vasm tools/vlink tools/*.tar.gz

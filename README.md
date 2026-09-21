@@ -67,50 +67,50 @@ ESC quits the show and returns to the desktop.
 
 ## Scenes
 
-The show is **scene 1, the moire field**. Keys `1`-`4` switch; `0` re-enables
+The show is **scene 1, the cubes**. Keys `1`-`5` switch; `0` re-enables
 auto-cycling; `ESC` quits. Any other key is a manual hit, so you can drive it
-without a MIDI cable. Scenes 2-4 are the earlier prototypes, kept for reference.
+without a MIDI cable.
 
 | # | Scene | Status |
 |---|-------|--------|
-| 1 | **Moire field** | the show |
-| 2 | Moire, full redraw | reference |
-| 3 | Band | reference |
-| 4 | Strobe plate | reference |
+| 1 | **Cubes** | the show |
+| 2 | Moire field | kept |
+| 3 | Moire, full redraw | reference |
+| 4 | Band | reference |
+| 5 | Strobe plate | reference |
 
-### Scene 1: moire generated into a scrolling field
+### Scene 1: cubes
 
-Scrolling on a plain ST means moving the screen base register, and there is
-only one of those, so **everything on screen scrolls together**. You cannot
-hold a static layer over a moving one in a single framebuffer. So rather than
-drawing moire *over* a scroll, the moire is generated *into the leading edge*
-of the field. Each frame only the newly uncovered strip is written; everything
-already on screen just slides.
+A 4x2 grid of wireframe cubes laid out to match the controller's pads: pad 1
+is top-left, pad 8 is bottom-right. Hitting a pad swells its cube and spins it
+faster; the swell decays back down.
 
-The vertical axis therefore stops being space and becomes **time** — the screen
-is the last couple of seconds of the pattern's history, flowing past.
+The rotation is **not** computed on the ST. Line-drawing 8 cubes costs roughly
+90 000 of the frame's ~112 000 cycles before erasing anything, so the frames
+are baked by `tools/gencubes.py` into 128 sprites (8 scales x 16 angles) and
+the ST only copies them. Each tile is opaque and covers the cube's whole box,
+so there is no erase pass at all: one write per cube per frame.
 
-Consequences:
+Glitches ride on velocity:
 
-* **It is cheap.** At one page per frame that is 512 bytes written instead of
-  the 16 000 a half-screen moire redraw costs.
-* **Silence is free.** Scroll speed comes from the envelope, so when the level
-  is zero the picture freezes and the frame costs nothing at all.
-* **Pitch sets the spatial frequency.** MIDI note number drives `field_step`,
-  the rate the stripe index advances per page, so playing higher compresses the
-  banding.
-* **Hard hits punch noise.** Above `NOISE_HIT` the leading edge is filled from
-  the noise pool instead of the stripe table, so a hit stays visible as a band
-  scrolling away behind the beat.
+* above `GLITCH_VEL` the cube tears into horizontal slabs for a few frames
+* above `SHEAR_VEL` the whole picture slips sideways, which is free because it
+  is only the screen base register moving
 
-Two details make it seamless:
+Two things the tearing code has to get right, both learned the hard way:
 
-* The base register steps 256 bytes — 3 rows plus **128 pixels of horizontal
-  shear**. The stripe patterns repeat every 16 pixels and 128 is eight whole
-  periods, so the shear is invisible by construction.
-* The window wraps after 128 pages, so every page below 125 is written twice,
-  at `p` and at `p+128`. The jump back lands on identical bytes. Verified: 30
-  consecutive frames across several wraps show no discontinuity.
+* The shift must be **even**. A `move.l` to an odd address is an address error
+  on a 68000, so an odd shift crashes the machine the first time anyone hits a
+  pad hard.
+* It shifts what is **read**, not where it is written. Moving the destination
+  smears pixels outside the cube's box, and since tiles are opaque only over
+  their own box, nothing ever erases them again.
+
+Regenerate the sprites (and a contact-sheet preview) with:
+
+```
+python3 tools/gencubes.py
+```
 
 ### Frame budget
 
@@ -118,7 +118,11 @@ A mono frame is ~112 000 cycles at 8 MHz. `movem.l` with eight registers moves
 32 bytes per ~88 cycles, so a *full*-screen fill is ~90 000 cycles — nearly the
 whole frame. Build with `-DDIAG=1` to get a bar on the top row showing how many
 of the last 64 frames overran their budget; `-DSTARTSCENE=n` boots straight into
-one scene and `-DAUTOCYCLE=1` restores cycling. The build compares the system VBL
+one scene, `-DAUTOCYCLE=1` restores cycling, and `-DFORCEGLITCH=1` tears every
+cube every frame so the glitch path can be exercised without depending on MIDI.
+The DIAG build also draws a second bar four rows down: MIDI bytes consumed in
+the last 64 frames. An empty second bar means nothing is reaching the ACIA at
+all, which separates a delivery problem from a parsing one. The build compares the system VBL
 counter at `$462` against its own frame count, so it catches any frame that took
 longer than one.
 
@@ -126,13 +130,25 @@ Measured on the machine:
 
 | Scene | Computed cost | Overruns / 64 frames |
 |-------|---------------|----------------------|
-| 1 Moire field | 1 400 cycles at one page/frame, ~9 900 flat out, 0 frozen | 0-1 |
-| 2 Moire, full redraw | ~43 000 cycles | 0-2 |
-| 3 Band | ~79 000 cycles worst case | 0-1 |
-| 4 Strobe plate | one word write | 0-1 |
+| 1 Cubes | 8 tiles x 96 rows, ~66 000 cycles | 0 |
+| 1 Cubes, all 8 tearing at once | ~72 000 cycles | 0 |
+| 2 Moire field | 1 400 cycles at one page/frame, ~9 900 flat out, 0 frozen | 0-1 |
+| 3 Moire, full redraw | ~43 000 cycles | 0-2 |
+| 4 Band | ~79 000 cycles worst case | 0-1 |
+| 5 Strobe plate | one word write | 0-1 |
 
 Even the near-free scenes report 0-1 per 64, so roughly one in sixty-four is
-baseline jitter rather than the cost of an effect. Scene 1 sits at that floor.
+baseline jitter rather than the cost of an effect.
+
+The tearing blit originally recomputed its shift on every row and overran
+*every* frame with all eight cubes torn. Hoisting that out to one shift per
+eight rows made the inner loop identical to the plain blit and took it to zero.
+
+Note that driving MIDI into headless Hatari is unreliable: the emulator does
+not run at wall-clock speed, so a host-side feeder delivers bytes in bursts
+with gaps long enough for the free-run fallback to cut in. Verify MIDI-driven
+behaviour on hardware, or with `-DFORCEGLITCH=1` style build flags that remove
+MIDI from the loop.
 
 ## Known limits, and what they cost
 

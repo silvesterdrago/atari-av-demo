@@ -69,6 +69,8 @@ VEC_ACIA    equ $118            ; MFP channel 6 -- shared by IKBD and MIDI
 VEC_TIMERC  equ $114            ; MFP channel 5 -- TOS already runs it at 200Hz
 MFP_IERB    equ $fffffa09       ; bit 6 = ACIA interrupt enable
 MFP_IMRB    equ $fffffa15       ; bit 6 = ACIA interrupt mask
+MFP_AER     equ $fffffa03       ; active edge; ACIA IRQ is active low
+MFP_IPRB    equ $fffffa0d       ; pending; bit 6 set = ACIA is asking
 MFP_ISRB    equ $fffffa11       ; in-service; software EOI means the handler
                                 ; must clear its bit or the channel never
                                 ; interrupts again
@@ -205,7 +207,7 @@ mainloop:
     endif
 
     if DIAG
-    btst    #0,ACIA_MIDI_CTRL   ; did a byte land in the 6850 at all?
+    btst    #0,ACIA_MIDI_CTRL   ; a byte sitting unread in the 6850
     beq.s   .noacia
     addq.w  #1,acia_seen
 .noacia:
@@ -266,6 +268,7 @@ install_midi:
     move.w  sr,-(sp)
     move.w  #$2700,sr           ; no interrupts while we swap the vector
     move.b  #ACIA_RX_ON,ACIA_MIDI_CTRL
+    bclr    #4,MFP_AER          ; GPIP4 (ACIA) must trigger on the falling edge
     bset    #6,MFP_IERB         ; make sure channel 6 is actually enabled
     bset    #6,MFP_IMRB
     move.b  #ISRB_NOT_ACIA,MFP_ISRB   ; clear a stuck in-service bit

@@ -14,7 +14,14 @@ TOS ?= $(firstword $(wildcard \
          /usr/local/share/hatari/tos.img \
          /usr/share/hatari/tos.img))
 
-HATARI := hatari --tos $(TOS) --machine st --memsize 1 --monitor mono \
+# Prefer a locally built Hatari with PortMidi if one is present: it talks to
+# CoreMIDI directly, so no bridge and no FIFO. Build it with
+# tools/build-hatari-pm.sh. Falls back to Homebrew's, which is file-based.
+HATARI_PM  := tools/hatari-pm/Hatari.app/Contents/MacOS/Hatari
+HATARI_BIN := $(if $(wildcard $(HATARI_PM)),$(HATARI_PM),hatari)
+MIDIPORT   ?= IAC Driver Bus 1
+
+HATARI := $(HATARI_BIN) --tos $(TOS) --machine st --memsize 1 --monitor mono \
                  --sound off --gemdos-drive C -d dist --auto 'C:\NOISEAV.TOS'
 
 # Hatari opens a MIDI *output* device whenever MIDI is enabled, and on the
@@ -65,6 +72,14 @@ run-live: $(TARGET) $(BRIDGE) fifo
 	-$(HATARI) $(MIDIOPTS)
 	@kill `cat /tmp/noiseav-bridge.pid` 2>/dev/null; rm -f /tmp/noiseav-bridge.pid
 
+# Straight to CoreMIDI, no bridge. Needs the PortMidi build; pick the device
+# with `make run-pm MIDIPORT='MPK mini 3'` (see `make midi-list`).
+run-pm: $(TARGET)
+	@test -x $(HATARI_PM) || { echo "run tools/build-hatari-pm.sh first"; exit 1; }
+	@printf '[Midi]\nbEnableMidi = TRUE\nsMidiInPortName = %s\nsMidiOutPortName = Off\n' \
+	        "$(MIDIPORT)" > /tmp/noiseav-midi.cfg
+	$(HATARI) --configfile /tmp/noiseav-midi.cfg --midi 1
+
 # Same, driven by the synthetic generator instead of a keyboard.
 run-midi: $(TARGET) fifo
 	@python3 tools/midifeed.py $(FIFO) & echo $$! > /tmp/noiseav-feed.pid
@@ -85,6 +100,6 @@ clean:
 	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
 
 distclean: clean
-	rm -rf tools/vasm tools/vlink tools/*.tar.gz
+	rm -rf tools/vasm tools/vlink tools/*.tar.gz tools/hatari-pm-build
 
-.PHONY: all tools fifo run run-live run-midi midi-list diag clean distclean
+.PHONY: all tools fifo run run-live run-midi run-pm midi-list diag clean distclean

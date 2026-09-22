@@ -229,11 +229,46 @@ The practical consequence:
   bytes/s, almost exactly one byte per burst. Complete note-ons almost never
   assemble
 
-This is an emulator limitation, not a fault in the ST code: the same absence of
-an interrupt also stops TOS's own MIDI handler from ever running. On real
-hardware the MIDI ACIA does raise MFP channel 6 — that is how every ST MIDI
-program works — so dense MIDI needs to be tested on the machine, or under a
-Hatari built with PortMidi.
+This is an emulator limitation, not a fault in the ST code. Everything the ST
+side controls was checked and is correct:
+
+| checked | result |
+|---|---|
+| ACIA control register | `$95`, receive interrupt on — confirmed in Hatari's own trace |
+| ACIA IRQ line | asserted per byte — `midi update irq irq_new=1` in the trace |
+| MFP `IERB` bit 6 | set |
+| MFP `IMRB` bit 6 | set |
+| MFP `ISRB` bit 6 | cleared (software EOI) |
+| MFP `AER` bit 4 | cleared (falling edge) |
+| vector `$118` | hooked |
+| MFP `IPRB` bit 6 | **never pending** |
+| our handler | **never runs** |
+
+The ACIA asks for an interrupt and the MFP never latches it. EmuTOS's own
+handler is equally never reached — at boot EmuTOS sets `cr=0x95`, the IRQ line
+goes high, and the byte then sits unread for eight hundred VBLs until our code
+drains it by polling.
+
+On real hardware the MIDI ACIA does raise MFP channel 6 — that is how every ST
+MIDI program works — so dense MIDI has to be tested on the machine.
+
+### Building Hatari with PortMidi
+
+```
+tools/build-hatari-pm.sh      # then: make run-pm
+```
+
+Homebrew's Hatari is built without PortMidi, which leaves only the file-based
+`--midi-in`/`--midi-out` options and the bridge. A PortMidi build talks to
+CoreMIDI directly: no bridge, no FIFO, and Hatari reads whole messages.
+
+It does **not** fix the interrupt problem above — the ST still only sees about
+one byte per burst — but it removes two moving parts from the chain.
+
+One trap when building: Hatari defaults to a universal arm64 + x86_64 build on
+macOS while Homebrew's portmidi is arm64 only. The x86_64 slice fails to link,
+CMake's symbol check fails, and portmidi is reported as simply "not found".
+`-DCMAKE_OSX_ARCHITECTURES=arm64` is the fix.
 
 ## Safety
 

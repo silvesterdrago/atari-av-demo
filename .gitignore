@@ -25,3 +25,6 @@ solids_preview.png
 src/big.bin
 src/grid.bin
 grid_preview.png
+grid_preview_sparse.png
+src/hyper.bin
+hyper_preview.png

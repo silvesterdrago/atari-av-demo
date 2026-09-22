@@ -47,6 +47,22 @@ dist/$(shell echo $(notdir $(basename $(1))) | tr a-z A-Z).TOS: $(1) $$(SHOW_DEP
 endef
 $(foreach s,$(SHOW_SRCS),$(eval $(call SHOW_RULE,$(s))))
 
+# Baked geometry. The shows incbin these, so they have to exist before the
+# assembler runs -- and they are generated, not tracked.
+src/big.bin: tools/genbig.py tools/gensolids.py
+	python3 tools/genbig.py
+src/solids.bin: tools/gensolids.py
+	python3 tools/gensolids.py
+src/shapes.bin: tools/genshapes.py
+	python3 tools/genshapes.py
+src/vectors.bin: tools/genvectors.py
+	python3 tools/genvectors.py
+
+dist/MONOLITH.TOS: src/big.bin
+dist/SOLIDS.TOS:   src/solids.bin
+dist/SHAPES.TOS:   src/shapes.bin
+dist/VECTORS.TOS:  src/vectors.bin
+
 all: $(TARGET) $(SHOW_BINS)
 
 shows: $(SHOW_BINS)
@@ -136,6 +152,7 @@ diag: | $(VASM)
 clean:
 	rm -rf dist dist-*
 	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
+	rm -f src/big.bin src/solids.bin src/shapes.bin src/vectors.bin
 
 distclean: clean
 	rm -rf tools/vasm tools/vlink tools/*.tar.gz tools/hatari-pm-build

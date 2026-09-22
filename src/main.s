@@ -33,6 +33,11 @@ FORCEGLITCH equ 0
     ifnd FAKEMIDI
 FAKEMIDI    equ 0
     endif
+    ; -DNOPOLL=1 removes the once-per-frame safety drain, leaving only the
+    ; interrupt. If bytes still arrive, the interrupt is genuinely firing.
+    ifnd NOPOLL
+NOPOLL      equ 0
+    endif
 
 ; ---- GEMDOS (trap #1) ------------------------------------------------
 GD_PTERM0   equ 0
@@ -1200,10 +1205,12 @@ draw_overrun_bar:
 
 ;----------------------------------------------------------------------
 poll_midi:
+    if NOPOLL=0
     move.w  sr,-(sp)
     move.w  #$2700,sr           ; keep the ISR out while we touch midi_head
     bsr     drain_acia
     move.w  (sp)+,sr
+    endif
 .next:
     move.w  midi_tail,d1
     cmp.w   midi_head,d1

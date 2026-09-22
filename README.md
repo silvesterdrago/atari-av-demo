@@ -123,7 +123,7 @@ worth risking a refactor. Once a show on the core has earned its keep,
 | `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
 | `GLYPHS` | lines of text marching up a hardware-scrolled field; pads pick the line, hard hits chew it |
 | `SHAPES` | the cubes show with a different solid per pad — cube, cut stone, octahedron, plus, tetrahedron, star, hex prism, pyramid |
-| `VECTORS` | the same eight solids, drawn from vertex tables instead of bitmaps, filling their cells |
+| `VECTORS` | **parked.** Vertex tables, figures filling the cell — but capping the work per frame makes them visibly come apart as they redraw. See IDEAS.md |
 
 #### VECTORS: what filling the cell actually costs
 

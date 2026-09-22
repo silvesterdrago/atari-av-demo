@@ -48,6 +48,31 @@ file and nothing else — no scene tables, no touching a working show.
 
 Done so far: `SPARKS`, `GLYPHS`, `SHAPES`, `VECTORS`.
 
+## Filled solids, not wireframes
+
+The lesson from `VECTORS` failing, and from looking at what STe mono demos
+actually put on screen: **outlines are the most expensive way to cover a
+screen and the hardest to read.**
+
+An outline costs roughly 50 cycles a pixel — a byte read, an OR, a mask
+rotate, Bresenham bookkeeping, all for one pixel. A filled span costs about
+one cycle a pixel, because a word write covers sixteen of them. That is a
+factor of fifty, and it is why demos draw *filled* polygons with ordered
+dither as shading rather than wireframes.
+
+For this project that means: same solids, but draw their faces filled with
+dither patterns. A 60x60 face is about 5 000 cycles; a solid showing three
+visible faces is 15 000; four solids fit in a frame with room left.
+
+Two things make it cheaper still, and both are free:
+
+* **Bake the visible-face list per pose.** The generator already knows every
+  vertex position at every angle, so it can work out which faces point at the
+  camera and store that list. Backface culling then costs nothing at runtime.
+* **Bake the spans, not the vertices.** For a fixed set of poses the generator
+  could emit, per face, the left and right x for each row — then the ST does
+  nothing but write words.
+
 ## Visual material
 
 ### Strobe as a modifier, not a scene
@@ -89,6 +114,13 @@ is only tested against EmuTOS. TOS 1.04 may differ — verify on the machine.
 ---
 
 ## Parked
+
+* **`VECTORS` — wireframes drawn in real time.** Filling the cell works and the
+  data is tiny, but capping the work per frame means a figure visibly comes
+  apart as it is redrawn: some edges are a frame or two behind the rest. A cube
+  survived that; the star, plus and cut stone became a heap of pixels. The
+  outline was the wrong primitive — see *Filled solids* above. The source is
+  still in `src/shows/` but the idea is closed.
 
 * **Standalone scroll field** — became the layer underneath the moire rather
   than a scene of its own, which is what made the moire cheap.

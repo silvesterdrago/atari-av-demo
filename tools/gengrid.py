@@ -21,10 +21,21 @@ import math, os, random, struct, zlib
 
 W, H     = 640, 400
 HORIZON  = 200
-NLINES   = 12
+NLINES   = 6                # The far ones are NOT drawn as lines at all.
+                            # Equal spacing on the ground bunches them up
+                            # toward the horizon, where they merge into
+                            # stair-steps; in the reference that whole
+                            # region is one dithered band instead, and the
+                            # lines only start once they are well apart.
 PHASES   = 64
 DEPTH    = 199.0            # 199/(i+p) rows below the horizon
 NCONV    = 13               # converging lines
+APEX     = 55               # the vanishing point sits this far ABOVE the
+                            # horizon, behind the city, and the lines are cut
+                            # at the city's base. They therefore arrive still
+                            # separated instead of pinching into a triangle
+                            # of merged stair-steps on screen.
+BAND     = 30               # the band reaches down to the first line
 OUT      = "src/grid.bin"
 PREVIEW  = "grid_preview.png"
 
@@ -70,24 +81,45 @@ while x < W + 10:
             plot(mx, yy)
     x += w + rnd.randint(0, 5)
 
+# --------------------------------------------------- the distant ground
+# A dithered band under the horizon, thinning as it comes forward. In the
+# reference this is what fills the gap between the city and the first
+# horizontal the machine flies; without it that gap is bare black.
+for k in range(BAND):
+    y = HORIZON + 1 + k
+    d = 1.0 - k/BAND                            # dense at the horizon
+    step = 4 if d > 0.80 else (8 if d > 0.55 else (16 if d > 0.25 else 32))
+    off = (k*3) % step                          # break up the columns
+    for x in range(off, W, step):
+        plot(x, y)
+
 # ------------------------------------------------------- the floor's lines
 # Dotted, so they read as perspective guides without competing with the
-# solid horizontals the ST will be flying over them.
+# solid horizontals the ST will be flying over them. Drawn from the bottom
+# of the screen up to the city's base only: their vanishing point is APEX
+# rows further up, out of sight behind the city.
+VPY = HORIZON - APEX
 for i in range(NCONV):
     bx = -900 + i*(2*900 + W)/(NCONV-1)         # fan out past both edges
-    dx, dy = bx - W/2, (H-1) - HORIZON
+    dx, dy = bx - W/2, (H-1) - VPY
     steps = int(max(abs(dx), abs(dy)))
-    for s in range(steps+1):
-        if s & 1:
+    for t in range(steps+1):
+        if t & 1:
             continue
-        plot(int(W/2 + dx*s/steps + 0.5), HORIZON + int(dy*s/steps + 0.5))
+        y = VPY + dy*t/steps
+        if y < HORIZON:                         # cut at the city
+            continue
+        plot(int(W/2 + dx*t/steps + 0.5), int(y + 0.5))
 
 hline(HORIZON, 0, W-1)                          # the horizon itself, solid
 
 # ------------------------------------------------------------ the row table
 rows = bytearray()
 for k in range(PHASES):
-    p = 1.0 - k/PHASES                          # falling: the floor comes at you
+    # p reaches exactly 0 on the last phase, which puts the nearest line on
+    # the bottom row of the screen just before the set wraps -- so the line
+    # that pops leaves at the edge, where the pop cannot be seen.
+    p = 1.0 - (k+1)/PHASES
     for i in range(1, NLINES+1):
         y = HORIZON + DEPTH/(i + p)
         # H-2, not H-1: the two nearest lines are two rows thick
@@ -100,7 +132,7 @@ for k in range(PHASES):
 style = bytearray()
 for i in range(1, NLINES+1):
     if i <= 2:      style += bytes([0xFF, 2])
-    elif i <= 7:    style += bytes([0xFF, 1])
+    elif i <= 4:    style += bytes([0xFF, 1])
     else:           style += bytes([0xAA, 1])
 
 blob = bytes(fb) + bytes(rows) + bytes(style)
@@ -111,6 +143,7 @@ print(f"{OUT}: {len(blob)} bytes ({len(fb)} background"
 r0 = [struct.unpack('>h', rows[2*i:2*i+2])[0] for i in range(NLINES)]
 print(f"  phase 0 rows: {r0}")
 print(f"  gaps:         {[r0[i]-r0[i+1] for i in range(NLINES-1)]}")
+print(f"  src/shows/grid.s must use NLINES equ {NLINES}, PHASES equ {PHASES}")
 
 # --------------------------------------------------------------- preview
 def png(path, pix, w, h):

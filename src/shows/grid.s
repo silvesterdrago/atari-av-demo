@@ -12,14 +12,19 @@
 ;  background goes back underneath them out of the same baked image,
 ;  which is why the perspective lines survive being flown over.
 ;
-;  About 14 rows put back and 14 drawn a frame: ~9k cycles of 112k. The
-;  grid runs at the full 71 Hz with nine tenths of the frame unspent.
+;  About 8 rows put back and 8 drawn a frame: ~5k cycles of 112k. The
+;  grid runs at the full 71 Hz with most of the frame unspent.
+;
+;  The far lines are deliberately absent. Equal spacing on the ground
+;  bunches them toward the horizon, where they merge into stair-steps
+;  around the vanishing point; the generator puts a thinning dithered
+;  band there instead and hides the vanishing point behind the city.
 ;======================================================================
 POOL_SIZE   equ 1024            ; no noise here
 RANGE_PAGES equ 131             ; 256 pages: two whole screens, 32768 apart
     include "src/core/head.s"
 
-NLINES      equ 12
+NLINES      equ 6               ; must match tools/gengrid.py
 PHASES      equ 64
 ROWB        equ 80              ; bytes in a screen row; mono only
 BACK        equ 32768           ; the other screen

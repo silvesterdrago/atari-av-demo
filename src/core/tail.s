@@ -139,6 +139,9 @@ measure_overrun:
     move.l  d0,d1
     sub.l   last_vbl,d1
     move.l  d0,last_vbl
+    move.w  d1,isr_disp         ; bar four: frames the last pass took. With
+                                ; a show that draws N things a pass this is
+                                ; the only readout finer than a whole frame
     cmp.l   #1,d1
     bls.s   .ok
     addq.w  #1,overrun_acc
@@ -155,8 +158,6 @@ measure_overrun:
     clr.w   acia_seen
     move.w  show_ctr,acia_disp  ; bar three is the show's own counter
     clr.w   show_ctr
-    move.w  isr_hits,isr_disp
-    clr.w   isr_hits
 .done:
     rts
 

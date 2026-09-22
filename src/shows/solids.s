@@ -114,6 +114,22 @@ show_init:
 .zap2:
     move.w  #-1,(a0)+
     dbra    d0,.zap2
+    lea     cell_box,a0         ; the first blanking clears the whole cell
+    move.w  cell_rows,d2        ; out of memory: clear_span had d6
+    move.w  d2,d3
+    sub.w   #CLEAR_ROWS,d3
+    lsr.w   #1,d3               ; the top margin inside a cell
+    moveq   #0,d0
+.zap3:
+    move.w  d0,d1
+    lsr.w   #2,d1
+    mulu    d2,d1
+    add.w   d3,d1
+    move.w  d1,(a0)+
+    move.w  #CLEAR_ROWS,(a0)+
+    addq.w  #1,d0
+    cmp.w   #8,d0
+    bcs.s   .zap3
     ; mask tables, built once
     lea     lmaskt,a0
     lea     rmaskt,a1
@@ -285,31 +301,38 @@ draw_solid:
     endif
     endif
 
-    ; --- blank
+    ; --- blank exactly the rows the last pose used, and blank a row with
+    ; one instruction. The old version cleared all CLEAR_ROWS of the cell
+    ; through a five-long inner loop; a cell row is exactly five longs, so
+    ; one movem.l does it with no loop at all, and a figure covers about
+    ; 70% of the rows. Together that is most of the clear.
     move.w  d7,d0
-    lsl.w   #2,d0
-    lea     cell_clr,a0
-    move.l  (a0,d0.w),a1
-    move.w  cell_rows,d0
-    sub.w   #CLEAR_ROWS,d0
-    lsr.w   #1,d0
+    lsl.w   #2,d0               ; two words a cell: first row, row count
+    lea     cell_box,a0
+    adda.w  d0,a0
+    move.w  2(a0),d1
+    beq.s   .blanked
+    move.w  (a0),d0
     and.l   #$ffff,d0
     mulu    row_bytes,d0
+    move.l  cur_base,a1
     add.l   d0,a1
-    move.w  #CLEAR_ROWS-1,d0
-    move.w  cell_wb,d1
-    lsr.w   #2,d1
-    subq.w  #1,d1
+    move.w  d7,d0
+    and.w   #3,d0
+    mulu    #ROWB/4,d0          ; the cell's own byte offset along a row
+    adda.w  d0,a1
     move.w  row_bytes,d2
+    subq.w  #1,d1
+    moveq   #0,d0
+    moveq   #0,d3
     moveq   #0,d4
+    moveq   #0,d5
+    moveq   #0,d6
 .crow:
-    move.l  a1,a2
-    move.w  d1,d3
-.cl:
-    move.l  d4,(a2)+
-    dbra    d3,.cl
+    movem.l d0/d3-d6,(a1)       ; the full 20-byte width of a cell
     adda.w  d2,a1
-    dbra    d0,.crow
+    dbra    d1,.crow
+.blanked:
 
     ; --- the pose
     lea     solid_data,a6
@@ -344,6 +367,41 @@ draw_solid:
     lea     cell_cy,a0
     move.w  (a0,d0.w),d5
     move.w  d5,poly_cy
+
+    ; --- the rows this pose covers, for the next frame's blanking
+    move.l  a4,a0
+    move.w  d4,d1
+    lsr.w   #1,d1               ; d4 is nverts doubled by now
+    subq.w  #1,d1
+    moveq   #127,d2
+    moveq   #-128,d5
+.bb:
+    move.b  1(a0),d0
+    ext.w   d0
+    cmp.w   d2,d0
+    bge.s   .nmin
+    move.w  d0,d2
+.nmin:
+    cmp.w   d5,d0
+    ble.s   .nmax
+    move.w  d0,d5
+.nmax:
+    addq.l  #2,a0
+    dbra    d1,.bb
+    add.w   poly_cy,d2
+    and.w   #$fffe,d2           ; fill_poly rounds a face top down to even
+    add.w   poly_cy,d5
+    ifne YSTEP-1
+    addq.w  #1,d5               ; the twin row under the last one
+    endif
+    sub.w   d2,d5
+    addq.w  #1,d5
+    move.w  d7,d0
+    lsl.w   #2,d0
+    lea     cell_box,a0
+    adda.w  d0,a0
+    move.w  d2,(a0)
+    move.w  d5,2(a0)
 
     subq.w  #1,d3
 .face:
@@ -714,6 +772,7 @@ cell_glitch:    ds.w 8
 cell_cx:        ds.w 8
 cell_cy:        ds.w 8
 cell_last:      ds.w 8
+cell_box:       ds.w 16     ; per cell: first row drawn, rows drawn
 tlevel:         ds.w 1
 poly_cx:        ds.w 1
 poly_cy:        ds.w 1

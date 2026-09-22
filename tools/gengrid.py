@@ -21,12 +21,9 @@ import math, os, random, struct, zlib
 
 W, H     = 640, 400
 HORIZON  = 200
-NLINES   = 6                # The far ones are NOT drawn as lines at all.
-                            # Equal spacing on the ground bunches them up
-                            # toward the horizon, where they merge into
-                            # stair-steps; in the reference that whole
-                            # region is one dithered band instead, and the
-                            # lines only start once they are well apart.
+NLINES   = 20               # right up to the horizon: the far ones are
+                            # sparse enough that merging reads as a
+                            # gradient instead of a slab
 PHASES   = 64
 DEPTH    = 199.0            # 199/(i+p) rows below the horizon
 NCONV    = 13               # converging lines
@@ -35,7 +32,7 @@ APEX     = 55               # the vanishing point sits this far ABOVE the
                             # at the city's base. They therefore arrive still
                             # separated instead of pinching into a triangle
                             # of merged stair-steps on screen.
-BAND     = 30               # the band reaches down to the first line
+BAND     = 10               # just enough to bridge to the first line
 OUT      = "src/grid.bin"
 PREVIEW  = "grid_preview.png"
 
@@ -88,7 +85,7 @@ while x < W + 10:
 for k in range(BAND):
     y = HORIZON + 1 + k
     d = 1.0 - k/BAND                            # dense at the horizon
-    step = 4 if d > 0.80 else (8 if d > 0.55 else (16 if d > 0.25 else 32))
+    step = 4 if d > 0.7 else (8 if d > 0.4 else 16)
     off = (k*3) % step                          # break up the columns
     for x in range(off, W, step):
         plot(x, y)
@@ -114,35 +111,61 @@ for i in range(NCONV):
 hline(HORIZON, 0, W-1)                          # the horizon itself, solid
 
 # ------------------------------------------------------------ the row table
+# A line's FILL comes from where it is, not from which line it is. That is
+# the whole trick borrowed from the reference: a line arriving out of the
+# distance starts as a scatter of dots and thickens as it comes, so the far
+# ones can run right up to the horizon and merge without turning into a
+# slab. It also means every line's pattern changes as it travels, which is
+# what makes the floor read as moving rather than as a ladder sliding.
+#
+# Equal densities alternate their bit phase between neighbours, because two
+# dotted rows with the same phase line their dots up into columns -- which
+# is the moire that made the old far lines look like stair-steps.
+# Only the last strip before the horizon thins out. The floor underfoot has
+# to stay bold: a ramp that starts thinning at mid-screen turns every line
+# into a dashed line and the floor stops reading as a floor at all.
+FILLS = [                       # (nearness, even-line fill, odd-line fill)
+    (0.30, 0xFF, 0xFF),         # rows 260..398
+    (0.20, 0xEE, 0x77),         # 240..259
+    (0.14, 0xAA, 0x55),         # 228..239
+    (0.09, 0x88, 0x22),         # 218..227
+    (0.05, 0x80, 0x08),         # 210..217
+    (0.00, 0x80, 0x02),         # the last few, almost at the horizon
+]
+FAR   = float(H-1 - HORIZON)
+
 rows = bytearray()
+dropped = 0
 for k in range(PHASES):
     # p reaches exactly 0 on the last phase, which puts the nearest line on
     # the bottom row of the screen just before the set wraps -- so the line
     # that pops leaves at the edge, where the pop cannot be seen.
     p = 1.0 - (k+1)/PHASES
+    seen = set()
     for i in range(1, NLINES+1):
-        y = HORIZON + DEPTH/(i + p)
-        # H-2, not H-1: the two nearest lines are two rows thick
-        rows += struct.pack('>h', min(H-2, int(y)))
+        y = min(H-2, int(HORIZON + DEPTH/(i + p)))
+        if y in seen:               # the far ones land on the same row; the
+            rows += struct.pack('>hBB', -1, 0, 0)   # ST skips a -1 outright
+            dropped += 1
+            continue
+        seen.add(y)
+        d = (y - HORIZON)/FAR       # 1 underfoot, 0 at the horizon
+        for lim, pe, po in FILLS:
+            if d >= lim:
+                pat = pe if (i & 1) == 0 else po
+                break
+        thick = 2 if d > 0.80 else 1    # only the nearest few
+        rows += struct.pack('>hBB', y, pat, thick)
 
-# How each line is drawn, by distance. The far ones bunch up a row apart, so
-# solid white turns the horizon into a slab that buries the city -- dotted,
-# they read as the dithered band the reference actually has. The nearest two
-# get a second row, which is what gives the floor its weight underfoot.
-style = bytearray()
-for i in range(1, NLINES+1):
-    if i <= 2:      style += bytes([0xFF, 2])
-    elif i <= 4:    style += bytes([0xFF, 1])
-    else:           style += bytes([0xAA, 1])
-
-blob = bytes(fb) + bytes(rows) + bytes(style)
+style = b''                     # the fill travels with the row now
+blob = bytes(fb) + bytes(rows)
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'wb').write(blob)
 print(f"{OUT}: {len(blob)} bytes ({len(fb)} background"
-      f" + {len(rows)} row table + {len(style)} style)")
-r0 = [struct.unpack('>h', rows[2*i:2*i+2])[0] for i in range(NLINES)]
-print(f"  phase 0 rows: {r0}")
-print(f"  gaps:         {[r0[i]-r0[i+1] for i in range(NLINES-1)]}")
+      f" + {len(rows)} row table, 4 bytes an entry)")
+print(f"  {dropped} of {PHASES*NLINES} entries are duplicate rows, skipped")
+e0 = [struct.unpack('>hBB', rows[4*i:4*i+4]) for i in range(NLINES)]
+print(f"  phase 0:      {[(y, hex(pa), t) for y, pa, t in e0]}")
 print(f"  src/shows/grid.s must use NLINES equ {NLINES}, PHASES equ {PHASES}")
 
 # --------------------------------------------------------------- preview
@@ -161,8 +184,9 @@ for y in range(H):
     for x in range(W):
         pix[y*W+x] = 255 if fb[y*80 + (x >> 3)] >> (7 - (x & 7)) & 1 else 0
 # what it will look like with the first phase's lines on it
-for i, y in enumerate(r0):
-    pat, thick = style[2*i], style[2*i+1]
+for y, pat, thick in e0:
+    if y < 0:
+        continue
     for t in range(thick):
         for x in range(W):
             if pat >> (7 - (x & 7)) & 1:

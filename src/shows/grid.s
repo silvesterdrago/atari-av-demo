@@ -12,24 +12,27 @@
 ;  background goes back underneath them out of the same baked image,
 ;  which is why the perspective lines survive being flown over.
 ;
-;  About 8 rows put back and 8 drawn a frame: ~5k cycles of 112k. The
-;  grid runs at the full 71 Hz with most of the frame unspent.
+;  About 18 rows put back and 18 drawn a frame: ~11k cycles of 112k. The
+;  grid runs at the full 71 Hz with nine tenths of the frame unspent.
 ;
-;  The far lines are deliberately absent. Equal spacing on the ground
-;  bunches them toward the horizon, where they merge into stair-steps
-;  around the vanishing point; the generator puts a thinning dithered
-;  band there instead and hides the vanishing point behind the city.
+;  A line's FILL travels with it: the generator gives every (phase, line)
+;  its own pattern, dense underfoot and a scatter of dots near the
+;  horizon. That is what lets the lines run all the way up to the
+;  horizon, where they land on the same rows and merge -- as a gradient
+;  rather than as the slab of stair-steps a solid fill made of them.
+;  The vanishing point of the converging lines is hidden behind the city
+;  for the same reason: nothing should pinch to a point on screen.
 ;======================================================================
 POOL_SIZE   equ 1024            ; no noise here
 RANGE_PAGES equ 131             ; 256 pages: two whole screens, 32768 apart
     include "src/core/head.s"
 
-NLINES      equ 6               ; must match tools/gengrid.py
+NLINES      equ 20              ; must match tools/gengrid.py
 PHASES      equ 64
 ROWB        equ 80              ; bytes in a screen row; mono only
 BACK        equ 32768           ; the other screen
-GR_ROWS     equ 32000           ; the row table, after the background
-GR_STYLE    equ GR_ROWS+PHASES*NLINES*2
+GR_TBL      equ 32000           ; after the background: PHASES x NLINES of
+ENTRY       equ 4               ; row.w, fill.b, thick.b
 
 SPEED_BASE  equ 900             ; phase per frame at rest: ~18 frames a slot
 SPEED_DECAY equ 70
@@ -58,7 +61,7 @@ show_init:
     clr.w   gflash
     move.w  #1,back_side        ; screen A is on show, so draw into B
     lea     prev_rows,a0        ; neither buffer has lines on it yet
-    move.w  #NLINES*2-1,d0
+    move.w  #NLINES*4-1,d0      ; two screens, row and thickness each
 .zap:
     move.w  #-1,(a0)+
     dbra    d0,.zap
@@ -94,18 +97,19 @@ show_frame:
     beq.s   .b0
     adda.l  #BACK,a6
 .b0:
-    mulu    #NLINES*2,d0
+    mulu    #NLINES*ENTRY,d0
     lea     prev_rows,a4
     adda.w  d0,a4
 
     ; --- put the background back under the lines this screen still shows
     lea     grid_data,a5
-    lea     grid_data+GR_STYLE,a3
     move.w  #NLINES-1,gi
 .rest:
-    move.w  (a4)+,d0
-    bmi     .nextr
-    move.b  1(a3),gthick
+    move.w  (a4)+,d0            ; where it was
+    move.w  (a4)+,d1            ; and how thick
+    tst.w   d0
+    bmi     .nextr              ; -1: that line was not drawn
+    move.w  d1,gthick
     and.l   #$ffff,d0
     mulu    #ROWB,d0
     move.l  a5,a0
@@ -113,11 +117,10 @@ show_frame:
     move.l  a6,a1
     add.l   d0,a1
     bsr     copy_row
-    subq.b  #1,gthick
+    subq.w  #1,gthick
     beq.s   .nextr
-    bsr     copy_row            ; two rows for the near lines
+    bsr     copy_row            ; two rows for the nearest lines
 .nextr:
-    addq.l  #2,a3
     subq.w  #1,gi
     bpl     .rest
 
@@ -125,26 +128,31 @@ show_frame:
     move.w  gphase,d0
     lsr.w   #8,d0
     and.w   #PHASES-1,d0
-    mulu    #NLINES*2,d0
-    lea     grid_data+GR_ROWS,a2
+    mulu    #NLINES*ENTRY,d0
+    lea     grid_data+GR_TBL,a2
     adda.w  d0,a2
-    lea     grid_data+GR_STYLE,a3
     lea     prev_rows,a4
     move.w  back_side,d0        ; already flipped, so this is the side we
     eori.w  #1,d0               ; are drawing
-    mulu    #NLINES*2,d0
+    mulu    #NLINES*ENTRY,d0
     adda.w  d0,a4
     move.w  #NLINES-1,gi
 .draw:
-    move.w  (a2)+,d0
+    move.w  (a2)+,d0            ; row
+    moveq   #0,d1
+    move.b  (a2)+,d1            ; its fill, which travelled with it
+    moveq   #0,d2
+    move.b  (a2)+,d2            ; and its thickness
     move.w  d0,(a4)+            ; what the next pass here has to undo
-    move.b  1(a3),gthick
+    move.w  d2,(a4)+
+    tst.w   d0
+    bmi     .nextd              ; -1: this line landed on a row already used
+    move.w  d2,gthick
     and.l   #$ffff,d0
     mulu    #ROWB,d0
     move.l  a6,a1
     add.l   d0,a1
-    moveq   #0,d0               ; the style byte, spread over a long
-    move.b  (a3),d0
+    move.w  d1,d0               ; the fill byte, spread over a long
     move.w  d0,d1
     lsl.w   #8,d1
     or.w    d1,d0
@@ -159,11 +167,10 @@ show_frame:
     move.l  d0,d6
     move.l  d0,d7
     bsr     draw_row
-    subq.b  #1,gthick
+    subq.w  #1,gthick
     beq.s   .nextd
     bsr     draw_row
 .nextd:
-    addq.l  #2,a3
     subq.w  #1,gi
     bpl     .draw
 
@@ -225,7 +232,7 @@ grid_data:
 ;----------------------------------------------------------------------
     section bss
     even
-prev_rows:      ds.w NLINES*2   ; one set of rows per screen
+prev_rows:      ds.w NLINES*4   ; per screen: row and thickness a line
 gspeed:         ds.w 1
 gphase:         ds.w 1
 gflash:         ds.w 1

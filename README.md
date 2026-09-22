@@ -158,6 +158,32 @@ So the next lever is a convex-polygon filler — fill a quad as a quad, with a
 left and right edge chain — which should roughly halve the rows. Until then
 a solid takes about 1.8 frames and a cell refreshes around 5 Hz.
 
+**Making them read as solids at all took three goes**, and the first two were
+wrong in ways worth recording:
+
+* Lighting was `max(0, dot(n, light))`, which clamps every face pointing away
+  from the light to the same level. Those faces then merged into one blob with
+  no edge between them.
+* Shading by *density* alone does not work in one bit: two neighbouring
+  densities look identical, so faces still merged. The fills are now eight
+  visually **distinct textures** — sparse dots, quarter dots, vertical
+  hairlines, fine check, horizontal hairlines, diagonal, three-quarters,
+  solid. Stripes against check separate instantly with no outline needed.
+* Even then two faces could land on the same fill. Levels are now assigned by
+  **brightness rank** rather than absolute brightness, so faces meeting at an
+  edge always differ. The order still comes from the light direction, so it
+  still reads as lighting.
+
+Two things had to come out. The vertex jitter on hard hits read as shattering
+on wireframes but as a fill bug on filled faces. And the base-register shear
+moves the whole screen mid-scan, which was a glitch on outlines and a defect
+on solids.
+
+**Known artefact:** because a solid takes about 1.8 frames, the beam can catch
+a cell mid-redraw — a shape with a chunk missing, or briefly blank. Both go
+away with either a shadow buffer (draw off-screen, copy the finished cell) or
+getting a solid inside one frame.
+
 #### VECTORS: what filling the cell actually costs
 
 Bitmaps cost **area**, which is what capped `SHAPES` at a 96×96 box. Vertex

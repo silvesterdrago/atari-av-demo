@@ -33,7 +33,9 @@ SOL_DECAY   equ 3
 CELLS_PER_FRAME equ 1
 GLITCH_AT   equ 240
 GLITCH_LEN  equ 16
-SHEAR_AT    equ $e0
+; The base-register shear moves the whole screen mid-scan. On wireframes
+; that read as a glitch; on filled solids it reads as a defect.
+SHEAR_AT    equ $7fff
 FIX         equ 7               ; fixed-point shift for edge slopes. 8 would
                                 ; overflow divs: the widest edge is 254 px and
                                 ; 254<<8 does not fit a signed word quotient.
@@ -284,8 +286,6 @@ draw_solid:
     move.w  (a0,d0.w),d5
     lea     cell_cy,a0
     move.w  (a0,d0.w),d6
-    lea     cell_glitch,a0
-    move.w  (a0,d0.w),jitter
 
     subq.w  #1,d3
 .tri:
@@ -308,32 +308,10 @@ draw_solid:
     move.b  (a3)+,d0            ; shading level
     move.w  d0,tlevel
 
-    tst.w   jitter
-    beq.s   .straight
-    bsr     shatter
-.straight:
     bsr     fill_tri
     dbra    d3,.tri
 .out:
     movem.l (sp)+,d0-d7/a0-a6
-    rts
-
-;----------------------------------------------------------------------
-; A hard hit pulls the faces apart rather than merely flashing them.
-;----------------------------------------------------------------------
-shatter:
-    movem.l d0-d4/a0,-(sp)
-    bsr     next_rng
-    lea     tri_pts,a0
-    moveq   #5,d1
-.jit:
-    move.w  d3,d0
-    and.w   #7,d0
-    subq.w  #4,d0
-    add.w   d0,(a0)+
-    lsr.l   #3,d3
-    dbra    d1,.jit
-    movem.l (sp)+,d0-d4/a0
     rts
 
 ;----------------------------------------------------------------------

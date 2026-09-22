@@ -69,6 +69,11 @@ Two things make it cheaper still, and both are free:
 * **Bake the visible-face list per pose.** The generator already knows every
   vertex position at every angle, so it can work out which faces point at the
   camera and store that list. Backface culling then costs nothing at runtime.
+* **Draw the cell off-screen and copy it in.** A solid takes ~1.8 frames, so
+  the beam catches cells mid-redraw: a chunk missing, or briefly blank. A
+  4000-byte shadow buffer and a row copy fixes it for about 25 000 cycles. I
+  tried this and broke it — the program died on the fifth cell and I reverted
+  rather than thrash further, so it needs doing properly.
 * **Fill quads as quads.** `SOLIDS` triangulates every face, which doubles
   the row count, and a row is ~180 cycles of overhead against ~40 of filling.
   A convex-polygon filler walking a left and a right edge chain should roughly

@@ -29,20 +29,27 @@ LIGHT   = (-0.45, -0.72, 0.53)
 OUT     = "src/solids.bin"
 PREVIEW = "solids_preview.png"
 
-BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]]
+# Eight fills, ordered roughly by density but chosen to be visually
+# DISTINCT rather than evenly spaced. In one bit two neighbouring densities
+# look the same, so two faces meeting at an edge merge into one blob --
+# which is exactly what the first version did. Stripes against checks
+# against dots separate instantly, with no outline needed.
+PATTERNS = [
+    (0x80, 0x00, 0x08, 0x00),   # 0  sparse dots, almost black
+    (0x88, 0x22, 0x88, 0x22),   # 1  quarter dots
+    (0xAA, 0xAA, 0xAA, 0xAA),   # 2  vertical hairlines
+    (0xAA, 0x55, 0xAA, 0x55),   # 3  fine check
+    (0xFF, 0x00, 0xFF, 0x00),   # 4  horizontal hairlines
+    (0xCC, 0x66, 0x33, 0x99),   # 5  diagonal
+    (0xEE, 0xBB, 0xEE, 0xBB),   # 6  three quarters
+    (0xFF, 0xFF, 0xFF, 0xFF),   # 7  solid
+]
 
 
 def dither_table():
-    """level -> four bytes, one per row of the 8x4 cell"""
     tbl = []
-    for lvl in range(LEVELS):
-        thresh = (lvl + 1) * 16 // (LEVELS + 1)     # never 0, never 16
-        for r in range(4):
-            b = 0
-            for x in range(8):
-                if BAYER[r][x % 4] < thresh:
-                    b |= 0x80 >> x
-            tbl.append(b)
+    for p in PATTERNS:
+        tbl += list(p)
     return bytes(tbl)
 
 
@@ -137,14 +144,29 @@ def build_pose(verts, faces, si, ai, pf):
     ay = ai*2*math.pi/ANGLES*0.618
     rv = [rotate([c*s for c in v], ax, ay) for v in verts]
     pv = [project(v, pf) for v in rv]
-    tris = []
+    # Which faces are visible, and how lit each one is
+    vis = []
     for f in faces:
         n = norm(cross(sub(rv[f[1]], rv[f[0]]), sub(rv[f[2]], rv[f[0]])))
         if n[2] <= 0.02:                       # facing away, or edge-on
             continue
-        lit = max(0.0, dot(n, LIGHT))
-        lvl = min(LEVELS-1, 1 + int(lit*(LEVELS-1)))   # never level 0: a face
-        for k in range(1, len(f)-1):                   # at black is invisible
+        vis.append((0.5 + 0.5*dot(n, LIGHT), f))
+
+    # Assign the fills by RANK, not by absolute brightness. Mapping
+    # brightness straight onto levels let two faces meeting at an edge land
+    # on the same fill, and then they merge into one blob with no edge --
+    # which is what the first two attempts looked like. Ranking guarantees
+    # they differ, and since the order still comes from the light direction
+    # it still reads as lighting.
+    vis.sort(key=lambda t: -t[0])
+    tris = []
+    n = len(vis)
+    for i, (lit, f) in enumerate(vis):
+        if n == 1:
+            lvl = LEVELS - 1
+        else:
+            lvl = LEVELS - 1 - round(i * (LEVELS - 1) / (n - 1))
+        for k in range(1, len(f)-1):
             tris.append((f[0], f[k], f[k+1], lvl))
     return pv, tris
 

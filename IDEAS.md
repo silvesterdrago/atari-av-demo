@@ -46,14 +46,9 @@ Each idea is now its own file in `src/shows/` on top of `src/core/`, building
 its own binary. See the README for the three hooks. Adding an idea means one
 file and nothing else — no scene tables, no touching a working show.
 
-Done so far: `SPARKS`.
+Done so far: `SPARKS`, `GLYPHS`.
 
 ## Visual material
-
-### Text written into the field
-Glyphs punched into the leading edge of the scrolling field, so words rise and
-drift away as history. The field already generates content at the edge, so this
-costs about what a stripe costs. Needs a small bitmap font.
 
 ### Strobe as a modifier, not a scene
 Palette register `$FF8240` inverts the whole mono display for one word write.

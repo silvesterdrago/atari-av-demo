@@ -121,6 +121,30 @@ worth risking a refactor. Once a show on the core has earned its keep,
 | show | idea |
 |---|---|
 | `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
+| `GLYPHS` | lines of text marching up a hardware-scrolled field; pads pick the line, hard hits chew it |
+
+#### GLYPHS and the shear
+
+The moire field got away with the screen base register's 256-byte step — 3
+rows plus 128 pixels of shear — because stripe patterns repeat every 16
+pixels, so the sideways part cancelled exactly. Text has no such luck; it
+would be sliced into ribbons.
+
+But `lcm(256, 80) = 1280` bytes, which is **exactly 16 rows and no shear at
+all**. So the font is 16 pixels tall and one base step advances precisely one
+line of text. The scroll is line-by-line rather than smooth, which suits a
+wall of text better than a glide anyway.
+
+The font is the ST's own 8×16 system font, found through Line-A by scanning
+the three font headers for the one whose `form_height` is 16 — no font data in
+the binary at all.
+
+Erosion is a one-shot flag consumed by the next line printed, not a decaying
+counter. Decaying it over frames left the text permanently eaten, because hits
+arrive far more often than lines are printed.
+
+The text itself is a table at the bottom of `src/shows/glyphs.s`, one line per
+pad. It is meant to be edited.
 
 ## Scenes (src/main.s, the all-in-one show)
 

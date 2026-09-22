@@ -67,6 +67,18 @@ ACIA_MIDI_DATA equ $fffffc06
 ACIA_RX_ON  equ $95             ; /16, 8N1, receive interrupt enabled
 VEC_ACIA    equ $118            ; MFP channel 6 -- shared by IKBD and MIDI
 VEC_TIMERC  equ $114            ; MFP channel 5 -- TOS already runs it at 200Hz
+VEC_TIMERA  equ $134            ; MFP channel 13 -- Timer A, unused by TOS
+MFP_IERA    equ $fffffa07       ; bit 5 = Timer A
+MFP_ISRA    equ $fffffa0f
+MFP_IMRA    equ $fffffa13
+MFP_TACR    equ $fffffa19       ; Timer A control (prescaler)
+MFP_TADR    equ $fffffa1f       ; Timer A counter
+ISRA_NOT_TA equ $df             ; all ones except bit 5
+; MFP timer clock is 2457600 Hz. /4 prescaler with a count of 150 gives
+; 4096 Hz, a sweep every 244us. A MIDI byte takes 320us at 31250 baud, so
+; this looks more often than bytes can possibly arrive.
+TA_PRESCALE equ 1               ; 1 = divide by 4
+TA_COUNT    equ 150
 MFP_IERB    equ $fffffa09       ; bit 6 = ACIA interrupt enable
 MFP_IMRB    equ $fffffa15       ; bit 6 = ACIA interrupt mask
 MFP_AER     equ $fffffa03       ; active edge; ACIA IRQ is active low
@@ -280,6 +292,16 @@ install_midi:
     ; every 5ms instead of one every 14ms frame.
     move.l  VEC_TIMERC,old_tc
     move.l  #timerc_isr,VEC_TIMERC
+    ; 200Hz is still far too slow: bytes arrive every 320us. Timer A is free
+    ; on a plain ST, so run it at 4kHz purely to empty the ACIA in time.
+    move.l  VEC_TIMERA,old_ta
+    move.l  #timera_isr,VEC_TIMERA
+    clr.b   MFP_TACR
+    move.b  #TA_COUNT,MFP_TADR
+    move.b  #TA_PRESCALE,MFP_TACR
+    bset    #5,MFP_IERA
+    bset    #5,MFP_IMRA
+    move.b  #ISRA_NOT_TA,MFP_ISRA
     ; A byte already sitting in the 6850 leaves RDRF stuck on, and there is
     ; no fresh edge to interrupt on, so clear it out before we start.
     bsr     drain_acia
@@ -289,10 +311,19 @@ install_midi:
 remove_midi:
     move.w  sr,-(sp)
     move.w  #$2700,sr
+    clr.b   MFP_TACR            ; stop Timer A before giving the vector back
+    bclr    #5,MFP_IERA
+    move.l  old_ta,VEC_TIMERA
     move.l  old_tc,VEC_TIMERC
     move.l  old_acia,VEC_ACIA
     move.w  (sp)+,sr
     rts
+
+; 4kHz. Nothing else uses Timer A, so this just empties the ACIA and returns.
+timera_isr:
+    bsr     drain_acia          ; saves and restores what it touches
+    move.b  #ISRA_NOT_TA,MFP_ISRA
+    rte
 
 ; 200Hz system tick. Drain, then hand on to TOS, which needs this for its
 ; own clock.
@@ -1441,6 +1472,7 @@ new_pal:
 old_ssp:        ds.l 1
 old_acia:       ds.l 1
 old_tc:         ds.l 1
+old_ta:         ds.l 1
 old_phys:       ds.l 1
 buf_base:       ds.l 1
 cur_base:       ds.l 1

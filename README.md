@@ -207,6 +207,10 @@ What it takes to actually receive a byte:
   software end-of-interrupt mode, so a handler that does not clear its
   in-service bit fires exactly once and never again
 * drain from the 200 Hz Timer C tick as well, as a safety net
+* and, because the interrupt does not fire under Hatari at all, run **Timer A
+  at 4 kHz** purely to empty the ACIA. A MIDI byte takes 320 us at 31250 baud,
+  so a sweep every 244 us cannot miss one. Costs about 2% of the CPU and
+  measured zero frame overruns; on real hardware it is a redundant safety net
 
 ### What does not work, and why
 
@@ -220,14 +224,18 @@ before the next overwrites it. Raising the poll rate does not help — going fro
 once per frame (71 Hz) to Timer C (200 Hz) changed the measured throughput not
 at all, 13 bytes per 64 frames both times.
 
-The practical consequence:
+That was the state with polling at frame rate. Measured against `drums.py` at
+110 BPM, which sends about 62 bytes/s:
 
-* **hand-played pads work** — hits are sparse and well separated, so each
-  message lands in its own poll and survives whole
-* **a sequenced pattern does not** — `drums.py` at 110 BPM sends about 62
-  bytes/s in bursts roughly 15 times a second, and the program sees about 14
-  bytes/s, almost exactly one byte per burst. Complete note-ons almost never
-  assemble
+| draining from | bytes received per 64 frames (56 expected) |
+|---|---|
+| once per frame, 71 Hz | 13 |
+| Timer C, 200 Hz | 13 — no change |
+| Timer A, 4 kHz | **45-60** |
+
+200 Hz changes nothing because bytes arrive every 320 us; you have to look
+faster than they arrive, not merely more often than once a frame. At 4 kHz
+the sequencer comes through essentially intact.
 
 This is an emulator limitation, not a fault in the ST code. Everything the ST
 side controls was checked and is correct:

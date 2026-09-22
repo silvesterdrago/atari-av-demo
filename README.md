@@ -203,8 +203,37 @@ What it takes to actually receive a byte:
   means there is no fresh edge to interrupt on, and one unread byte jams the
   port permanently. This is what made it look like "MIDI worked the first time
   and never again"
-* keep draining once per frame as a safety net, so a missed interrupt costs a
-  byte rather than the whole session
+* **clear the channel's bit in `ISRB` before returning.** The ST's MFP runs in
+  software end-of-interrupt mode, so a handler that does not clear its
+  in-service bit fires exactly once and never again
+* drain from the 200 Hz Timer C tick as well, as a safety net
+
+### What does not work, and why
+
+Under Hatari's file-based MIDI the ACIA interrupt is **never raised at all** —
+measured directly, the interrupt counter stays at zero while bytes are visibly
+arriving in the 6850. Everything the program receives comes from polling.
+
+Polling can only lift **one byte out of each burst**: a three-byte message
+crosses the wire in about a millisecond, and only one byte is ever visible
+before the next overwrites it. Raising the poll rate does not help — going from
+once per frame (71 Hz) to Timer C (200 Hz) changed the measured throughput not
+at all, 13 bytes per 64 frames both times.
+
+The practical consequence:
+
+* **hand-played pads work** — hits are sparse and well separated, so each
+  message lands in its own poll and survives whole
+* **a sequenced pattern does not** — `drums.py` at 110 BPM sends about 62
+  bytes/s in bursts roughly 15 times a second, and the program sees about 14
+  bytes/s, almost exactly one byte per burst. Complete note-ons almost never
+  assemble
+
+This is an emulator limitation, not a fault in the ST code: the same absence of
+an interrupt also stops TOS's own MIDI handler from ever running. On real
+hardware the MIDI ACIA does raise MFP channel 6 — that is how every ST MIDI
+program works — so dense MIDI needs to be tested on the machine, or under a
+Hatari built with PortMidi.
 
 ## Safety
 

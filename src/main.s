@@ -66,8 +66,13 @@ ACIA_MIDI_CTRL equ $fffffc04    ; 6850 status: bit 0 = receive data full
 ACIA_MIDI_DATA equ $fffffc06
 ACIA_RX_ON  equ $95             ; /16, 8N1, receive interrupt enabled
 VEC_ACIA    equ $118            ; MFP channel 6 -- shared by IKBD and MIDI
+VEC_TIMERC  equ $114            ; MFP channel 5 -- TOS already runs it at 200Hz
 MFP_IERB    equ $fffffa09       ; bit 6 = ACIA interrupt enable
 MFP_IMRB    equ $fffffa15       ; bit 6 = ACIA interrupt mask
+MFP_ISRB    equ $fffffa11       ; in-service; software EOI means the handler
+                                ; must clear its bit or the channel never
+                                ; interrupts again
+ISRB_NOT_ACIA equ $bf           ; all ones except bit 6; writing a 1 is a no-op
 
 MIDI_RING   equ 256             ; power of two
 MIDI_MASK   equ MIDI_RING-1
@@ -263,8 +268,15 @@ install_midi:
     move.b  #ACIA_RX_ON,ACIA_MIDI_CTRL
     bset    #6,MFP_IERB         ; make sure channel 6 is actually enabled
     bset    #6,MFP_IMRB
+    move.b  #ISRB_NOT_ACIA,MFP_ISRB   ; clear a stuck in-service bit
     move.l  VEC_ACIA,old_acia
     move.l  #midi_isr,VEC_ACIA
+    ; The ACIA interrupt is never actually raised under Hatari's file-based
+    ; MIDI -- proven with -DNOPOLL=1, which receives nothing at all. So take
+    ; the 200Hz system tick as well and drain from there: that is one sweep
+    ; every 5ms instead of one every 14ms frame.
+    move.l  VEC_TIMERC,old_tc
+    move.l  #timerc_isr,VEC_TIMERC
     ; A byte already sitting in the 6850 leaves RDRF stuck on, and there is
     ; no fresh edge to interrupt on, so clear it out before we start.
     bsr     drain_acia
@@ -274,8 +286,19 @@ install_midi:
 remove_midi:
     move.w  sr,-(sp)
     move.w  #$2700,sr
+    move.l  old_tc,VEC_TIMERC
     move.l  old_acia,VEC_ACIA
     move.w  (sp)+,sr
+    rts
+
+; 200Hz system tick. Drain, then hand on to TOS, which needs this for its
+; own clock.
+timerc_isr:
+    if DIAG
+    addq.w  #1,tc_ticks
+    endif
+    bsr     drain_acia          ; saves and restores what it touches
+    move.l  old_tc,-(sp)
     rts
 
 ;----------------------------------------------------------------------
@@ -303,6 +326,9 @@ drain_acia:
     rts
 
 midi_isr:
+    if DIAG
+    addq.w  #1,isr_hits
+    endif
     movem.l d0-d1/a0,-(sp)
 .drain:
     btst    #0,ACIA_MIDI_CTRL
@@ -320,6 +346,7 @@ midi_isr:
     bra.s   .drain
 .done:
     movem.l (sp)+,d0-d1/a0
+    move.b  #ISRB_NOT_ACIA,MFP_ISRB   ; software EOI, or this never fires again
     move.l  old_acia,-(sp)
     rts                         ; chain onward; the old handler does the rte
 
@@ -354,6 +381,10 @@ measure_overrun:
     clr.w   midi_bytes
     move.w  acia_seen,acia_disp
     clr.w   acia_seen
+    move.w  tc_ticks,tc_disp
+    clr.w   tc_ticks
+    move.w  isr_hits,isr_disp
+    clr.w   isr_hits
 .done:
     rts
 
@@ -1200,6 +1231,32 @@ draw_overrun_bar:
     move.b  #$ff,(a0)+
     dbra    d1,.lp3
 .none3:
+    ; fourth bar, twelve rows down: 200Hz timer ticks. Full means the hook
+    ; is firing; empty means it never runs and any conclusion drawn from it
+    ; is worthless.
+    move.l  cur_base,a0
+    move.w  row_bytes,d0
+    mulu    #12,d0
+    adda.w  d0,a0
+    move.l  a0,a1
+    move.w  row_bytes,d0
+    lsr.w   #2,d0
+    subq.w  #1,d0
+    moveq   #0,d1
+.clr4:
+    move.l  d1,(a1)+
+    dbra    d0,.clr4
+    move.w  isr_disp,d1
+    beq.s   .none4
+    cmp.w   #64,d1
+    bcs.s   .ok4
+    moveq   #64,d1
+.ok4:
+    subq.w  #1,d1
+.lp4:
+    move.b  #$ff,(a0)+
+    dbra    d1,.lp4
+.none4:
     rts
     endif
 
@@ -1380,6 +1437,7 @@ new_pal:
     even
 old_ssp:        ds.l 1
 old_acia:       ds.l 1
+old_tc:         ds.l 1
 old_phys:       ds.l 1
 buf_base:       ds.l 1
 cur_base:       ds.l 1
@@ -1419,6 +1477,10 @@ midi_head:      ds.w 1
 midi_tail:      ds.w 1
 acia_seen:      ds.w 1
 acia_disp:      ds.w 1
+tc_ticks:       ds.w 1
+tc_disp:        ds.w 1
+isr_hits:       ds.w 1
+isr_disp:       ds.w 1
 overrun_disp:   ds.w 1
 window_ctr:     ds.w 1
 midi_status:    ds.b 1

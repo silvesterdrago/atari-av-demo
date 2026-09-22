@@ -7,19 +7,26 @@
 ;  tear the shape into horizontal slabs, and dense playing slips the whole
 ;  picture sideways.
 ;
-;  As with the cubes, the rotation is baked by tools/genshapes.py and the
-;  ST only blits. Eight solids at eight scales and twelve angles in a
-;  64x64 box is 384 KB; the cubes show's 96x96 box would have been 663 KB,
-;  which is uncomfortable in 1 MB next to ~100 KB of BSS.
+;;  As with the cubes, the rotation is baked by tools/genshapes.py and the
+;  ST only blits. 64x64 fitted easily but the figures looked mean, so this
+;  is the cubes' 96x96 box with six scales rather than eight: 648 KB, and
+;  the pulse loses a little resolution instead of the figures losing half
+;  their size. The core's noise pool and scroll buffer are shrunk above to
+;  pay for it.
 ;======================================================================
+; This show has no scrolling and no use for the noise pool, so hand that
+; memory back before pulling the core in -- the sprite set wants it.
+POOL_SIZE   equ 1024
+RANGE_PAGES equ 8
+
     include "src/core/head.s"
 
-SH_W_BYTES  equ 8               ; 64 px
-SH_H        equ 64
+SH_W_BYTES  equ 12              ; 96 px, the same box the cubes used
+SH_H        equ 96
 SH_SPRITE   equ SH_W_BYTES*SH_H
-SH_SCALES   equ 8
+SH_SCALES   equ 6               ; six, not eight: sprite area is what costs
 SH_ANGLES   equ 12
-SH_DECAY    equ 5
+SH_DECAY    equ 3
 GLITCH_AT   equ 240             ; curved strength at which the shape tears
 GLITCH_LEN  equ 14
 SHEAR_AT    equ $e0             ; accumulated energy, not single-hit velocity
@@ -123,7 +130,9 @@ show_frame:
 
     ; --- pick the sprite: ((shape*SCALES + scale)*ANGLES + angle)
     move.w  d1,d5
-    lsr.w   #5,d5               ; scale 0..7
+    and.l   #$ff,d5
+    mulu    #SH_SCALES,d5
+    lsr.l   #8,d5               ; scale 0..SH_SCALES-1
     cmp.w   #SH_SCALES,d5
     bcs.s   .sok
     moveq   #SH_SCALES-1,d5
@@ -200,6 +209,7 @@ blit_shape:
 .row:
     move.l  (a1)+,(a0)
     move.l  (a1)+,4(a0)
+    move.l  (a1)+,8(a0)
     adda.w  d1,a0
     dbra    d0,.row
     movem.l (sp)+,d0-d7/a0-a3
@@ -228,6 +238,7 @@ blit_shape_torn:
 .row:
     move.l  (a2)+,(a3)
     move.l  (a2)+,4(a3)
+    move.l  (a2)+,8(a3)
     adda.w  d1,a3
     dbra    d6,.row
     lea     (SH_W_BYTES*8)(a1),a1

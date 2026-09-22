@@ -126,12 +126,24 @@ worth risking a refactor. Once a show on the core has earned its keep,
 
 #### SHAPES and the memory budget
 
-Eight solids at eight scales and twelve angles, baked by
-`tools/genshapes.py`. Sizing was the whole design decision: at the cubes
-show's 96×96 box that set would be 663 KB, which is uncomfortable in 1 MB
-next to ~100 KB of BSS. At 64×64 it is 384 KB, and a 64 px figure still sits
-comfortably in a 160 px cell. Measured zero frame overruns — the blit is two
-longs per row against the cubes' three, over 64 rows instead of 96.
+Eight solids baked by `tools/genshapes.py`. Sizing is the whole design
+problem, because sprite data grows with **area**: eight solids at eight
+scales and twelve angles is 384 KB in a 64×64 box and 864 KB in a 96×96 one.
+
+64×64 fitted easily and looked mean — the figures were far too small. So the
+set is now the cubes' 96×96 box with **six** scales instead of eight: 648 KB.
+The pulse loses a little resolution rather than the figures losing half their
+size, and the show hands back the core's noise pool and scroll buffer
+(`POOL_SIZE`, `RANGE_PAGES`) to pay for it.
+
+The other half of "too small" was the scale range. It ran 0.40–1.00, so a
+figure at rest was 40% of full size, and since the envelope decays quickly
+most cells sat near the bottom of that range most of the time. It is now
+0.72–1.00: always substantial, with the swell on top.
+
+Measured zero frame overruns.
+
+Two 68000 traps worth remembering, both found by looking at the screen:
 
 Two 68000 traps worth remembering, both found by looking at the screen:
 
@@ -142,6 +154,12 @@ Two 68000 traps worth remembering, both found by looking at the screen:
   silent.
 * The flat solids (plus, star) vanish into a single line when seen edge-on,
   so they are extruded deeper than looks right on paper.
+
+**96 px is the ceiling for pre-baked sprites.** Bigger figures need the
+rotation drawn on the ST from baked *vertex* tables instead of bitmaps — data
+drops to about 36 KB and the figures could fill the cells, but it means
+real-time line drawing, which only fits if cells are redrawn when they
+actually move rather than every frame.
 
 #### GLYPHS and the shear
 

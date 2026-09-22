@@ -99,13 +99,19 @@ VBCLOCK     equ $462            ; system VBL counter
 
 SCR_SIZE    equ 32000
 SCR_PAGES   equ 125             ; 125 * 256 = 32000, one visible screen
+    ifnd RANGE_PAGES            ; a show with no scrolling can shrink this
 RANGE_PAGES equ 128             ; how far the window may travel before wrapping
+    endif
 BUF_PAGES   equ SCR_PAGES+RANGE_PAGES
 BUF_TOTAL   equ BUF_PAGES*256
 
 NOISE_HIT   equ $e8             ; only the very top of the envelope punches noise
 
+    ; A show that uses neither the noise pool nor the tall scroll buffer can
+    ; shrink them and spend the memory on its own data instead.
+    ifnd POOL_SIZE
 POOL_SIZE   equ 32768
+    endif
 POOL_MASK   equ $3ffc
 
 LEVEL_DECAY equ 6

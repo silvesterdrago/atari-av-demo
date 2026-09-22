@@ -7,17 +7,19 @@ only blits.
 
 Sizing is a real constraint. At the cubes show's 96x96 box, eight solids at
 eight scales and twelve angles would be 663 KB, which is uncomfortable in
-1 MB alongside ~100 KB of BSS. At 64x64 the same set is 393 KB, and a 64 px
-figure still sits comfortably in a 160 px cell.
+1 MB alongside ~100 KB of BSS. 64x64 fitted easily but the figures looked
+mean, so this is the cubes' 96x96 box with six scales instead of eight:
+663 KB, and the pulse loses a little resolution rather than the figures
+losing half their size.
 
     python3 tools/genshapes.py        # writes src/shapes.bin + preview
 """
 import math, os, struct, zlib
 
-W_BYTES = 8                 # 64 px
+W_BYTES = 12                # 96 px, same box the cubes used
 W       = W_BYTES * 8
-H       = 64
-SCALES  = 8
+H       = 96
+SCALES  = 6                 # six, not eight: area is what costs memory
 ANGLES  = 12
 OUT     = "src/shapes.bin"
 PREVIEW = "shapes_preview.png"
@@ -125,7 +127,7 @@ def rotate(v, ax, ay):
 def project(v, scale):
     x, y, z = v
     d = 4.0
-    f = scale * (W * 0.72) / (d - 1.0)
+    f = scale * (W * 0.70) / (d - 1.0)
     k = d / (d - z)
     return W/2 + x*f*k, H/2 + y*f*k
 
@@ -152,7 +154,9 @@ def line(buf, x0, y0, x1, y1):
 
 def render(verts, edges, si, ai):
     buf = bytearray(W_BYTES * H)
-    s  = 0.40 + 0.60 * (si / (SCALES - 1))
+    s  = 0.72 + 0.28 * (si / (SCALES - 1))   # never small: at rest a figure
+                                            # should still read from the back
+                                            # of a room
     ax = ai * 2*math.pi / ANGLES
     ay = ai * 2*math.pi / ANGLES * 0.618
     pts = [project(rotate(v, ax, ay), s) for v in verts]

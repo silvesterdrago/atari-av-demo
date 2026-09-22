@@ -143,7 +143,7 @@ measure_overrun:
     bls.s   .ok
     addq.w  #1,overrun_acc
 .ok:
-    addq.w  #1,window_ctr
+    add.w   d1,window_ctr       ; count FRAMES, not passes
     cmp.w   #64,window_ctr
     bcs.s   .done
     clr.w   window_ctr
@@ -155,8 +155,6 @@ measure_overrun:
     clr.w   acia_seen
     move.w  show_ctr,acia_disp  ; bar three is the show's own counter
     clr.w   show_ctr
-    move.w  tc_ticks,tc_disp
-    clr.w   tc_ticks
     move.w  isr_hits,isr_disp
     clr.w   isr_hits
 .done:

@@ -33,8 +33,17 @@ make run-midi # same, with a MIDI IN pipe at /tmp/noiseav.midi
 
 ```
 make midi-list     # what does macOS see?
-make run-live      # bridge + emulator, play the keys
+make run-live      # everything at once: keyboard AND sequencer
+make run-pm        # one device only, no bridge (MIDIPORT='MPK mini 3')
 ```
+
+**Use `run-live` for a real setup.** The bridge connects to *every* CoreMIDI
+source and merges them into one stream, so a keyboard and a sequencer can play
+together. `run-pm` skips the bridge entirely by letting Hatari talk to CoreMIDI
+itself, but PortMidi opens exactly **one** port — pick the keyboard and the
+sequencer is gone, and the other way round.
+
+Both carry full MIDI throughput now that the ACIA is drained from Timer A.
 
 Hatari expects a file or device for `--midi-in`, and macOS has no `/dev/midi`
 node — CoreMIDI is an API, not a device file. So `tools/midibridge.c` pulls

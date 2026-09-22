@@ -14,15 +14,19 @@ TOS ?= $(firstword $(wildcard \
          /usr/local/share/hatari/tos.img \
          /usr/share/hatari/tos.img))
 
-# Prefer a locally built Hatari with PortMidi if one is present: it talks to
-# CoreMIDI directly, so no bridge and no FIFO. Build it with
-# tools/build-hatari-pm.sh. Falls back to Homebrew's, which is file-based.
+# Two emulators, deliberately. Homebrew's is file-based: it takes MIDI from a
+# FIFO, which lets the bridge merge EVERY CoreMIDI device into one stream --
+# keyboard and sequencer at the same time. A PortMidi build talks to CoreMIDI
+# directly with no bridge, but opens exactly ONE port, so it is one device or
+# the other. run-live is usually what you want.
 HATARI_PM  := tools/hatari-pm/Hatari.app/Contents/MacOS/Hatari
 HATARI_BIN := $(if $(wildcard $(HATARI_PM)),$(HATARI_PM),hatari)
 MIDIPORT   ?= IAC Driver Bus 1
 
-HATARI := $(HATARI_BIN) --tos $(TOS) --machine st --memsize 1 --monitor mono \
-                 --sound off --gemdos-drive C -d dist --auto 'C:\NOISEAV.TOS'
+COMMON := --tos $(TOS) --machine st --memsize 1 --monitor mono \
+          --sound off --gemdos-drive C -d dist --auto 'C:\NOISEAV.TOS'
+HATARI      := $(HATARI_BIN) $(COMMON)
+HATARI_FILE := hatari $(COMMON)
 
 # Hatari opens a MIDI *output* device whenever MIDI is enabled, and on the
 # Homebrew build that defaults to a Linux ALSA path and fails -- taking the
@@ -67,13 +71,16 @@ midi-list: $(BRIDGE)
 
 # Play it live from a real MIDI keyboard. The keyboard may be plugged in
 # before or after starting; the bridge picks up new devices by itself.
+# Every MIDI device at once, via the bridge. Needs Homebrew's file-based
+# Hatari, which is why this does not use $(HATARI).
 run-live: $(TARGET) $(BRIDGE) fifo
 	@$(BRIDGE) -o $(FIFO) & echo $$! > /tmp/noiseav-bridge.pid
-	-$(HATARI) $(MIDIOPTS)
+	-$(HATARI_FILE) $(MIDIOPTS)
 	@kill `cat /tmp/noiseav-bridge.pid` 2>/dev/null; rm -f /tmp/noiseav-bridge.pid
 
-# Straight to CoreMIDI, no bridge. Needs the PortMidi build; pick the device
-# with `make run-pm MIDIPORT='MPK mini 3'` (see `make midi-list`).
+# Straight to CoreMIDI, no bridge -- but ONE device only, chosen with
+# `make run-pm MIDIPORT='MPK mini 3'` (see `make midi-list`). For keyboard and
+# sequencer together, use run-live instead.
 run-pm: $(TARGET)
 	@test -x $(HATARI_PM) || { echo "run tools/build-hatari-pm.sh first"; exit 1; }
 	@printf '[Midi]\nbEnableMidi = TRUE\nsMidiInPortName = %s\nsMidiOutPortName = Off\n' \
@@ -83,7 +90,7 @@ run-pm: $(TARGET)
 # Same, driven by the synthetic generator instead of a keyboard.
 run-midi: $(TARGET) fifo
 	@python3 tools/midifeed.py $(FIFO) & echo $$! > /tmp/noiseav-feed.pid
-	-$(HATARI) $(MIDIOPTS)
+	-$(HATARI_FILE) $(MIDIOPTS)
 	@kill `cat /tmp/noiseav-feed.pid` 2>/dev/null; rm -f /tmp/noiseav-feed.pid
 
 # --- diagnostics -----------------------------------------------------------

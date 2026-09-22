@@ -22,7 +22,7 @@ File layout:
 import math, os, struct, zlib
 
 SCALES, ANGLES = 8, 24
-STRIDE  = 72
+STRIDE  = 96
 EXTENT  = 70
 LEVELS  = 8
 LIGHT   = (-0.45, -0.72, 0.53)
@@ -159,16 +159,35 @@ def build_pose(verts, faces, si, ai, pf):
     # they differ, and since the order still comes from the light direction
     # it still reads as lighting.
     vis.sort(key=lambda t: -t[0])
-    tris = []
+    faces_out = []
     n = len(vis)
     for i, (lit, f) in enumerate(vis):
         if n == 1:
             lvl = LEVELS - 1
         else:
             lvl = LEVELS - 1 - round(i * (LEVELS - 1) / (n - 1))
-        for k in range(1, len(f)-1):
-            tris.append((f[0], f[k], f[k+1], lvl))
-    return pv, tris
+        # Cut the face into a left and a right chain of edges, top to bottom.
+        # Doing it here means the ST never searches for the topmost vertex,
+        # never wraps around the polygon and never works out a direction: it
+        # walks two lists. And filling a quad as a quad rather than as two
+        # triangles halves the scanlines, which is the whole point -- a row
+        # costs ~180 cycles of overhead against ~40 of filling.
+        m = len(f)
+        ys = [pv[j][1] for j in f]
+        imin = ys.index(min(ys))
+        imax = ys.index(max(ys))
+        a, b, k = [], [], imin
+        while True:
+            a.append(f[k])
+            if k == imax: break
+            k = (k + 1) % m
+        k = imin
+        while True:
+            b.append(f[k])
+            if k == imax: break
+            k = (k - 1) % m
+        faces_out.append((lvl, a, b))
+    return pv, faces_out
 
 
 # calibrate the projection so the biggest pose just reaches EXTENT
@@ -190,15 +209,17 @@ for name, fn in SHAPES:
     v, f = fn(); f = fix_winding(v, f)
     for si in range(SCALES):
         for ai in range(ANGLES):
-            pv, tris = build_pose(v, f, si, ai, PF)
+            pv, faces_out = build_pose(v, f, si, ai, PF)
             b = bytearray()
-            b += struct.pack('BB', len(pv), len(tris))
+            b += struct.pack('BB', len(pv), len(faces_out))
             for x, y in pv:
                 b += struct.pack('bb', max(-128,min(127,round(x))),
                                        max(-128,min(127,round(y))))
-            for i0,i1,i2,lvl in tris:
-                b += struct.pack('BBBB', i0, i1, i2, lvl)
-            maxblob = max(maxblob, len(b)); maxtris = max(maxtris, len(tris))
+            for lvl, ca, cb in faces_out:
+                b += struct.pack('BBB', lvl, len(ca), len(cb))
+                b += bytes(ca) + bytes(cb)
+            maxblob = max(maxblob, len(b))
+            maxtris = max(maxtris, len(faces_out))
             assert len(b) <= STRIDE, (name, len(b))
             blob += b + bytes(STRIDE-len(b))
 
@@ -207,7 +228,7 @@ open(OUT,'wb').write(blob)
 for name, fn in SHAPES:
     v, f = fn()
     print(f"  {name:11s} {len(v):2d} verts {len(f):2d} faces")
-print(f"largest pose {maxblob} bytes of {STRIDE}, up to {maxtris} visible triangles")
+print(f"largest pose {maxblob} bytes of {STRIDE}, up to {maxtris} visible faces")
 print(f"{OUT}: {len(blob)} bytes ({len(blob)/1024:.0f} KB)")
 print(f"asm: SOL_SCALES={SCALES} SOL_ANGLES={ANGLES} SOL_STRIDE={STRIDE} "
       f"SOL_POSES_OFF=32 SOL_LEVELS={LEVELS}")
@@ -228,17 +249,18 @@ pw, ph = CW*cols, CH*2
 rows = [bytearray([0]*pw) for _ in range(ph)]
 DT = dither_table()
 
-def fill_tri(p0, p1, p2, lvl, cx, cy):
-    pts = sorted([p0,p1,p2], key=lambda p: p[1])
-    (x0,y0),(x1,y1),(x2,y2) = pts
-    def edge(ya, xa, yb, xb, y):
-        if yb == ya: return xa
-        return xa + (xb-xa)*(y-ya)/(yb-ya)
-    for y in range(int(round(y0)), int(round(y2))+1):
-        if y < y1:
-            xa, xb = edge(y0,x0,y2,x2,y), edge(y0,x0,y1,x1,y)
-        else:
-            xa, xb = edge(y0,x0,y2,x2,y), edge(y1,x1,y2,x2,y)
+def fill_poly(pv, ca, cb, lvl, cx, cy):
+    def chain_x(ch, y):
+        for i in range(len(ch)-1):
+            y0, y1 = pv[ch[i]][1], pv[ch[i+1]][1]
+            if y0 <= y <= y1 and y1 != y0:
+                x0, x1 = pv[ch[i]][0], pv[ch[i+1]][0]
+                return x0 + (x1-x0)*(y-y0)/(y1-y0)
+        return pv[ch[-1]][0]
+    y0 = min(pv[j][1] for j in ca)
+    y1 = max(pv[j][1] for j in ca)
+    for y in range(int(round(y0)), int(round(y1))+1):
+        xa, xb = chain_x(ca, y), chain_x(cb, y)
         if xa > xb: xa, xb = xb, xa
         sy = int(cy+y)
         if not (0 <= sy < ph): continue
@@ -249,13 +271,10 @@ def fill_tri(p0, p1, p2, lvl, cx, cy):
 
 for i,(name,fn) in enumerate(SHAPES):
     v,f = fn(); f = fix_winding(v,f)
-    pv, tris = build_pose(v, f, SCALES-1, 4, PF)
+    pv, faces_out = build_pose(v, f, SCALES-1, 4, PF)
     cx = (i % cols)*CW + CW//2
     cy = (i//cols)*CH + CH//2
-    for i0,i1,i2,lvl in tris:
-        fill_tri(pv[i0], pv[i1], pv[i2], lvl, cx, 0) if False else None
-        # y is handled inside via cy
-        p0 = (pv[i0][0], pv[i0][1]); p1 = (pv[i1][0], pv[i1][1]); p2 = (pv[i2][0], pv[i2][1])
-        fill_tri(p0, p1, p2, lvl, cx, cy)
+    for lvl, ca, cb in faces_out:
+        fill_poly(pv, ca, cb, lvl, cx, cy)
 write_png(PREVIEW, pw, ph, rows)
 print(f"{PREVIEW}: {pw}x{ph}")

@@ -74,10 +74,14 @@ Two things make it cheaper still, and both are free:
   4000-byte shadow buffer and a row copy fixes it for about 25 000 cycles. I
   tried this and broke it — the program died on the fifth cell and I reverted
   rather than thrash further, so it needs doing properly.
-* **Fill quads as quads.** `SOLIDS` triangulates every face, which doubles
-  the row count, and a row is ~180 cycles of overhead against ~40 of filling.
-  A convex-polygon filler walking a left and a right edge chain should roughly
-  halve the work. This is the measured next lever.
+* ~~Fill quads as quads~~ — **done, and it barely helped.** Only the cube,
+  slab and hex prism have quads; the rest of the set is triangles already. The
+  grid still refreshes at ~4 Hz.
+* **Fewer, bigger solids.** This is the real lever, and it is a design choice
+  rather than an optimisation. Eight big shaded solids is more than an 8 MHz
+  68000 will redraw quickly. Four cells doubles the rate; one large solid
+  centre-screen would run at full speed, with the pads choosing which solid
+  and how it spins.
 * **Bake the spans, not the vertices.** For a fixed set of poses the generator
   could emit, per face, the left and right x for each row — then the ST does
   nothing but write words.

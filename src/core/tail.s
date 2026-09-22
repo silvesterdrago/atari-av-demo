@@ -153,6 +153,8 @@ measure_overrun:
     clr.w   midi_bytes
     move.w  acia_seen,acia_disp
     clr.w   acia_seen
+    move.w  show_ctr,acia_disp  ; bar three is the show's own counter
+    clr.w   show_ctr
     move.w  tc_ticks,tc_disp
     clr.w   tc_ticks
     move.w  isr_hits,isr_disp
@@ -556,6 +558,7 @@ midi_disp:      ds.w 1
 midi_head:      ds.w 1
 midi_tail:      ds.w 1
 acia_seen:      ds.w 1
+show_ctr:       ds.w 1          ; bar three; a show counts whatever it likes
 acia_disp:      ds.w 1
 tc_ticks:       ds.w 1
 tc_disp:        ds.w 1

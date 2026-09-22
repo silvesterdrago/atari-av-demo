@@ -154,9 +154,36 @@ cycles of fixed overhead against 40 of actual filling, so what matters is
 **how many rows**, not how fast each one is. Triangulating every face doubles
 the row count, because a quad's two triangles each walk their own rows.
 
-So the next lever is a convex-polygon filler — fill a quad as a quad, with a
-left and right edge chain — which should roughly halve the rows. Until then
-a solid takes about 1.8 frames and a cell refreshes around 5 Hz.
+The filler now does fill a quad as a quad: the generator cuts each face into
+a left and a right chain of edges, top to bottom, so the ST never searches for
+a topmost vertex, never wraps round the polygon and never works out a
+direction. It walks two lists.
+
+**It bought much less than expected.** Measured properly — completed redraws
+against loop passes — a solid takes about 2 frames and the whole grid
+refreshes at roughly **4 Hz**, which is about where it was. The reason is the
+shape set: only the cube, slab and hex prism have quads at all. The diamond,
+octahedron, tetrahedron, pyramid and triangular prism are triangles already,
+so there was nothing to merge.
+
+Measuring this took two goes, and both instruments were wrong first:
+
+* The **overrun count saturates.** It says "this pass exceeded one frame", so
+  1.1 frames per solid and 1.8 look identical. Three rounds of tightening the
+  row loop moved it from 62 to 54 and told me nothing.
+* The replacement counter sat behind `ifd draws` in the core, and `draws` is
+  declared in the show *after* the core is included — so the symbol did not
+  exist at that point, the condition was false, and bar three carried on
+  showing the old ACIA probe. It read "1 redraw per 64 frames", which I nearly
+  believed.
+
+With a counter that works: 55 redraws per 64 passes, 54 overruns, so one
+redraw every ~2.1 VBLs.
+
+**The remaining lever is design, not code.** Eight big shaded solids is simply
+more than an 8 MHz 68000 will redraw quickly. Four cells would double the
+rate; one large solid centre-screen would run at full speed, and the pads
+could choose which solid and how it spins.
 
 **Making them read as solids at all took three goes**, and the first two were
 wrong in ways worth recording:

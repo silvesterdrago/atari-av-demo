@@ -29,6 +29,18 @@ SOL_STRIDE  equ 96
 SOL_POSES   equ 32              ; poses start after the dither table
 CLEAR_ROWS  equ 160             ; of the cell's 200; a solid never reaches
                                 ; further than 70 rows from the centre
+ROWB        equ 80              ; bytes in a screen row. Mono only, which this
+                                ; whole show is: it lets the span write the
+                                ; row below with a displacement instead of a
+                                ; second pass over the cell.
+    ifnd SEGLOOP
+SEGLOOP     equ 1               ; 0 reinstates the per-row chain checks, to
+    endif                       ; measure what the segment loop is worth
+    ifnd YSTEP
+YSTEP       equ 2               ; draw every YSTEP-th row and double it
+    endif                       ; afterwards. A span-row costs ~1200 cycles
+                                ; and a copied row about 150, so this is the
+                                ; cheapest factor of two on the machine.
 SOL_DECAY   equ 3
 CELLS_PER_FRAME equ 1
 GLITCH_AT   equ 240
@@ -128,6 +140,23 @@ show_init:
 
 ;----------------------------------------------------------------------
 show_frame:
+    ifd BENCHSOLID
+    ifnd BENCHREP               ; wait_vbl rounds a pass up to whole frames,
+BENCHREP    equ 8               ; so draw the thing several times a pass to
+    endif                       ; get resolution finer than a frame
+    move.w  #BENCHREP-1,benchn
+.bench:
+    moveq   #BENCHSOLID-1,d7    ; 1..8 picks the shape, d7 being both the
+    bsr     draw_solid          ; cell index and the shape index
+    eori.w  #1,benchodd         ; count every second draw: the bar stops at
+    bne.s   .noc                ; 64, and one draw a frame would peg it
+    addq.w  #1,show_ctr
+.noc:
+    subq.w  #1,benchn
+    bpl.s   .bench
+    rts
+    endif
+
     cmp.w   #150,idle_ticks
     bcs.s   .nofree
     addq.w  #1,free_ctr
@@ -226,6 +255,10 @@ show_frame:
 ; d7 = cell -> d0 = (scale << 8) | angle
 ;----------------------------------------------------------------------
 cell_pose:
+    ifd BENCHSOLID
+    move.w  #(7*256)+5,d0       ; largest scale, one fixed angle
+    rts
+    endif
     move.w  d7,d1
     add.w   d1,d1
     lea     cell_level,a0
@@ -246,10 +279,11 @@ cell_pose:
 ;----------------------------------------------------------------------
 draw_solid:
     movem.l d0-d7/a0-a6,-(sp)
+    ifnd BENCHSOLID
     if DIAG
-    addq.w  #1,show_ctr          ; completed redraws per 64 loop passes: the
-    endif                        ; overrun bar saturates and cannot tell
-                                 ; 1.1 frames per solid from 1.8
+    addq.w  #1,show_ctr          ; completed redraws per 64 frames
+    endif
+    endif
 
     ; --- blank
     move.w  d7,d0
@@ -333,7 +367,7 @@ draw_solid:
 ; wrapping round the polygon and no direction to work out here.
 ;----------------------------------------------------------------------
 fill_poly:
-    movem.l d0-d7/a0-a2,-(sp)   ; a3 deliberately not saved
+    movem.l d0-d7/a0-a2/a5,-(sp)    ; a3 deliberately not saved
     moveq   #0,d0
     move.b  (a3)+,d0
     move.w  d0,tlevel
@@ -358,6 +392,9 @@ fill_poly:
     move.b  1(a4,d4.w),d5
     ext.w   d5
     add.w   poly_cy,d5
+    ifne YSTEP-1
+    and.w   #$fffe,d5           ; the doubling pass works on even rows
+    endif
     move.w  d5,t_y
     subq.w  #1,d5
     move.w  d5,chA+14           ; forces both chains to load an edge on the
@@ -395,23 +432,33 @@ fill_poly:
     mulu    row_bytes,d4
     move.l  cur_base,a0
     add.l   d4,a0               ; a0 = row address, stepped from here
+    move.w  row_bytes,d4
+    ifne YSTEP-1
+    add.w   d4,d4
+    endif
+    movea.w d4,a5               ; one row step, out of memory
     moveq   #0,d0
     moveq   #0,d1
     moveq   #0,d2
     moveq   #0,d3
 
-.row:
+    ; --- one segment: the rows until either chain reaches its next vertex.
+    ; Inside a segment nothing can change, so the row loop below runs with
+    ; no compares at all -- the chain checks used to cost every row what
+    ; they now cost once per vertex.
+.seg:
     move.w  t_y,d4
     cmp.w   poly_ymax,d4
     bhi     .out
-
-    ; --- either chain reached its next vertex?
     cmp.w   chA+14,d4
     bls.s   .aok
     lea     chA,a1
     bsr     adv_chain
     move.l  chA+4,d0
     move.l  chA+8,d2
+    ifne YSTEP-1
+    add.l   d2,d2
+    endif
 .aok:
     cmp.w   chB+14,d4
     bls.s   .bok
@@ -419,7 +466,48 @@ fill_poly:
     bsr     adv_chain
     move.l  chB+4,d1
     move.l  chB+8,d3
+    ifne YSTEP-1
+    add.l   d3,d3
+    endif
 .bok:
+    ifne SEGLOOP
+    move.w  chA+14,d5           ; the nearest of: both chain ends and the
+    cmp.w   chB+14,d5           ; bottom of the face
+    bls.s   .m1
+    move.w  chB+14,d5
+.m1:
+    cmp.w   poly_ymax,d5
+    bls.s   .m2
+    move.w  poly_ymax,d5
+.m2:
+    sub.w   d4,d5
+    ifne YSTEP-1
+    lsr.w   #1,d5
+    endif
+    move.w  d5,segcnt           ; rows left in the segment, minus one
+    else
+    clr.w   segcnt              ; one row per pass through .seg: the old
+    endif                       ; shape of the loop, checked every row
+
+.row:
+
+    ifd ROWCOUNT                ; how many span-rows a solid REALLY walks:
+    ifnd ROWDIV
+ROWDIV      equ 512
+    endif
+    addq.w  #1,rowacc           ; every ROWDIV rows bumps bar three, so the
+    cmp.w   #ROWDIV,rowacc      ; bar reads rows-per-64-frames / ROWDIV
+    bcs.s   .nocnt
+    clr.w   rowacc
+    addq.w  #1,show_ctr
+.nocnt:
+    endif
+
+    ifd PROBE
+    if PROBE=1
+    bra     .next
+    endif
+    endif
 
     ; --- span ends, ordered
     move.l  d0,d6
@@ -444,24 +532,47 @@ fill_poly:
     move.b  16(a2,d7.w),d7      ; right mask
 
     move.w  t_y,d6
+    if YSTEP=2
+    and.w   #6,d6               ; (t_y/2) & 3, in words, in one step
+    else
     and.w   #3,d6
     add.w   d6,d6
+    endif
     move.w  0(a2,d6.w),d6       ; this row's fill, doubled
 
+    ifd PROBE
+    if PROBE=2
+    bra     .next
+    endif
+    endif
+
+    ; Every store has a twin ROWB bytes down when YSTEP is 2. The value is
+    ; already in a register at that point, so the twin needs no registers
+    ; and no second pass: it costs about as much as the stores themselves,
+    ; where a pass over the whole cell cost three times the rows it saved.
     tst.w   d5
     bne.s   .wide
     and.b   d7,d4
     and.b   d6,d4
     or.b    d4,(a1)
+    ifne YSTEP-1
+    or.b    d4,ROWB(a1)
+    endif
     bra.s   .next
 .wide:
     and.b   d6,d4
+    ifne YSTEP-1
+    or.b    d4,ROWB(a1)         ; before the postincrement moves a1 on
+    endif
     or.b    d4,(a1)+            ; end bytes are shared with the neighbour
     subq.w  #2,d5
     bmi.s   .right
     move.l  a1,d4
     btst    #0,d4
     beq.s   .even
+    ifne YSTEP-1
+    move.b  d6,ROWB(a1)
+    endif
     move.b  d6,(a1)+
     subq.w  #1,d5
     bmi.s   .right
@@ -472,23 +583,37 @@ fill_poly:
     beq.s   .noword
     subq.w  #1,d5
 .mid:
+    ifne YSTEP-1
+    move.w  d6,(a1)
+    move.w  d6,ROWB(a1)
+    addq.l  #2,a1
+    else
     move.w  d6,(a1)+
+    endif
     dbra    d5,.mid
 .noword:
     btst    #0,d4               ; odd leftover AFTER the words: doing it
     beq.s   .right              ; first leaves the address odd, and a move.w
-    move.b  d6,(a1)+            ; to an odd address is an address error
+    ifne YSTEP-1                ; to an odd address is an address error
+    move.b  d6,ROWB(a1)
+    endif
+    move.b  d6,(a1)+
 .right:
     and.b   d7,d6
     or.b    d6,(a1)
+    ifne YSTEP-1
+    or.b    d6,ROWB(a1)
+    endif
 .next:
     add.l   d2,d0
     add.l   d3,d1
-    addq.w  #1,t_y
-    adda.w  row_bytes,a0
-    bra     .row
+    addq.w  #YSTEP,t_y
+    adda.w  a5,a0
+    subq.w  #1,segcnt
+    bpl     .row
+    bra     .seg
 .out:
-    movem.l (sp)+,d0-d7/a0-a2
+    movem.l (sp)+,d0-d7/a0-a2/a5
     rts
 
 ;----------------------------------------------------------------------
@@ -601,6 +726,10 @@ free_ctr:       ds.w 1
 shear_ctr:      ds.w 1
 shear_cool:     ds.w 1
 jitter:         ds.w 1
+rowacc:         ds.w 1
+segcnt:         ds.w 1
+benchn:         ds.w 1
+benchodd:       ds.w 1
     even
 pat4:           ds.w 4          ; a2 points here; the mask tables are at
 lmaskt:         ds.b 8          ; +8 and +16 so one register reaches all three

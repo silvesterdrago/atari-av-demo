@@ -24,19 +24,25 @@ in mono costs a bulk movem.l store only about 13%. A whole 32000-byte
 screen touched once is 99k cycles: 0.89 of a frame. THAT is the hard
 ceiling on a screen-filling figure, before any geometry at all.
 
-CROW = 1150, from SOLIDS: 23 redraws per 64 frames at 209 scanlines a
-solid. A careful count of the loop body says about 450, so roughly half
-of it is fat -- most likely instruction fetch, which competes with the
-shifter exactly like data does, and there are some 40 instructions per
-row with t_y, poly_ymax, both chain ends and row_bytes all read from
-memory every row.
+CROW = 335 per pixel of figure height, measured on the fixed bench in
+solids.s (-DBENCHSOLID): a 112-px cube of 240 span-rows takes 1.00 frames,
+less the 31k cell clear. It was 615 before the row loop was cleaned up and
+the picture went to half vertical resolution. CBYTE is doubled to 6.2
+because every byte is now written twice, once for each of the two screen
+rows a span covers.
+
+The bench matters more than it looks: the show itself skips cells whose
+pose has not moved and excites cells at random, so its own redraw count
+swings 15..45 between frames and cannot attribute a 20% change to
+anything. One shape, one pose, redrawn unconditionally, repeated 8 times
+a pass to get resolution finer than a frame.
 """
 import math, sys
 exec(open('tools/gensolids.py').read().split('# calibrate the projection')[0])
 
 FRAME = 112000
-CROW  = float(sys.argv[1]) if len(sys.argv) > 1 else 1150.0
-CBYTE = float(sys.argv[2]) if len(sys.argv) > 2 else 3.1
+CROW  = float(sys.argv[1]) if len(sys.argv) > 1 else 335.0
+CBYTE = float(sys.argv[2]) if len(sys.argv) > 2 else 6.2
 SCRH  = 400
 
 

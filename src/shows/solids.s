@@ -33,6 +33,16 @@ ROWB        equ 80              ; bytes in a screen row. Mono only, which this
                                 ; whole show is: it lets the span write the
                                 ; row below with a displacement instead of a
                                 ; second pass over the cell.
+    ifnd BOXBLANK
+BOXBLANK    equ 0               ; 1 blanks only the rows the last pose used.
+    endif                       ; It is a fifth off a solid and it LEAKS:
+                                ; frames come up with thin bands of the
+                                ; previous pose left behind, in several
+                                ; cells at the same rows. Reading the code
+                                ; has not found it and the spinning bench
+                                ; meant to corner it is itself broken, so
+                                ; the default is the whole cell -- which
+                                ; still gets the movem.l row below.
     ifnd SEGLOOP
 SEGLOOP     equ 1               ; 0 reinstates the per-row chain checks, to
     endif                       ; measure what the segment loop is worth
@@ -301,15 +311,27 @@ draw_solid:
     endif
     endif
 
-    ; --- blank exactly the rows the last pose used, and blank a row with
-    ; one instruction. The old version cleared all CLEAR_ROWS of the cell
-    ; through a five-long inner loop; a cell row is exactly five longs, so
-    ; one movem.l does it with no loop at all, and a figure covers about
-    ; 70% of the rows. Together that is most of the clear.
+    ; --- blank a row with one instruction. It used to go through an inner
+    ; loop of five move.l; a cell row is exactly five longs, so one movem.l
+    ; does it with no loop at all, which is where most of the blanking cost
+    ; was: cube 1.09 -> 0.94 frames, diamond 1.00 -> 0.88.
+    ; Blanking only the rows the figure used (BOXBLANK) would add another
+    ; 3% to 7% and leaks -- see the flag.
     move.w  d7,d0
     lsl.w   #2,d0               ; two words a cell: first row, row count
     lea     cell_box,a0
     adda.w  d0,a0
+    ifeq BOXBLANK               ; 0 blanks the whole cell, which tells a
+    move.w  d7,d0               ; wrong box apart from a wrong span
+    lsr.w   #2,d0
+    mulu    cell_rows,d0
+    move.w  cell_rows,d1
+    sub.w   #CLEAR_ROWS,d1
+    lsr.w   #1,d1
+    add.w   d1,d0
+    move.w  d0,(a0)
+    move.w  #CLEAR_ROWS,2(a0)
+    endif
     move.w  2(a0),d1
     beq.s   .blanked
     move.w  (a0),d0
@@ -368,6 +390,7 @@ draw_solid:
     move.w  (a0,d0.w),d5
     move.w  d5,poly_cy
 
+    ifne BOXBLANK
     ; --- the rows this pose covers, for the next frame's blanking
     move.l  a4,a0
     move.w  d4,d1
@@ -402,6 +425,8 @@ draw_solid:
     adda.w  d0,a0
     move.w  d2,(a0)
     move.w  d5,2(a0)
+
+    endif
 
     subq.w  #1,d3
 .face:

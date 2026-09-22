@@ -123,6 +123,39 @@ worth risking a refactor. Once a show on the core has earned its keep,
 | `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
 | `GLYPHS` | lines of text marching up a hardware-scrolled field; pads pick the line, hard hits chew it |
 | `SHAPES` | the cubes show with a different solid per pad — cube, cut stone, octahedron, plus, tetrahedron, star, hex prism, pyramid |
+| `VECTORS` | the same eight solids, drawn from vertex tables instead of bitmaps, filling their cells |
+
+#### VECTORS: what filling the cell actually costs
+
+Bitmaps cost **area**, which is what capped `SHAPES` at a 96×96 box. Vertex
+tables cost almost nothing — eight solids at eight scales and thirty-two
+angles is **48 KB** against 648 KB of sprites — so here the figures are 144 px
+in a 160 px cell. The price is that the ST draws the lines itself.
+
+Measured, against `drums.py` at 110 BPM:
+
+| drawing strategy | overruns per 64 frames |
+|---|---|
+| one whole cell per frame | **40** |
+| blank + a full 32-edge batch in one frame | **45** |
+| blank on its own frame, then 24 edges per frame | **0** |
+
+So the work is capped: a cell is blanked on one frame and strokes in over the
+next one or two. With all eight cells moving, a full pass is about 19 frames —
+roughly **4 Hz**. Cells at rest are not redrawn at all, so when only a few
+pads are being played the ones that move refresh far faster.
+
+That is the real trade-off, and it is the machine's answer rather than a
+shortcut:
+
+* `VECTORS` — figures fill the cell, whole grid redraws at ~4 Hz
+* `SHAPES` — figures are 96 px, everything moves at 71 Hz
+
+Two things that turned out to matter more than expected: blanking the cell is
+expensive enough to need its own frame (and `clr.l` to memory costs 20 cycles
+where `move.l` from a zeroed register costs 12), and a figure never reaches
+more than 76 rows from the cell centre, so 40 of the cell's 200 rows never
+need clearing.
 
 #### SHAPES and the memory budget
 

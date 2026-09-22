@@ -18,3 +18,5 @@ tools/hatari-pm/
 tools/hatari-pm-build/
 src/shapes.bin
 shapes_preview.png
+src/vectors.bin
+vectors_preview.png

@@ -46,7 +46,7 @@ Each idea is now its own file in `src/shows/` on top of `src/core/`, building
 its own binary. See the README for the three hooks. Adding an idea means one
 file and nothing else — no scene tables, no touching a working show.
 
-Done so far: `SPARKS`, `GLYPHS`, `SHAPES`.
+Done so far: `SPARKS`, `GLYPHS`, `SHAPES`, `VECTORS`.
 
 ## Visual material
 

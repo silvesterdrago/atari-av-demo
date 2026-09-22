@@ -537,9 +537,7 @@ old_ta:         ds.l 1
 old_phys:       ds.l 1
 buf_base:       ds.l 1
 cur_base:       ds.l 1
-prev_ptr:       ds.l 1
 rng_state:      ds.l 1
-moire_idx:      ds.l 1
 last_vbl:       ds.l 1
 rez:            ds.w 1
 row_bytes:      ds.w 1
@@ -547,25 +545,11 @@ scr_rows:       ds.w 1
 half_rows:      ds.w 1
 max_rows:       ds.w 1
 level:          ds.w 1
-prev_chunks:    ds.w 1
-pool_off:       ds.w 1
 quit_flag:      ds.w 1
 midi_count:     ds.w 1
 idle_ticks:     ds.w 1
 demo_ctr:       ds.w 1
 scene:          ds.w 1
-auto_cycle:     ds.w 1
-cycle_ctr:      ds.w 1
-base_page:      ds.w 1
-field_step:     ds.w 1
-cubes_idle:     ds.w 1
-shear_ctr:      ds.w 1
-shear_cool:     ds.w 1
-moire_half:     ds.w 1
-moire_step:     ds.w 1
-moire_phase:    ds.w 1
-strobe_ctr:     ds.w 1
-invert_flag:    ds.w 1
 overrun_acc:    ds.w 1
 midi_bytes:     ds.w 1
 midi_disp:      ds.w 1
@@ -584,14 +568,9 @@ midi_d1:        ds.b 1
     even
 midi_ring:      ds.b MIDI_RING
     even
-cube_level:     ds.w 8
-cube_angle:     ds.w 8
-cube_glitch:    ds.w 8
     even
-cube_org:       ds.l 8
     even
 old_pal:        ds.w 16
-stripe_tbl:     ds.w 256
     even
 noise_pool:     ds.b POOL_SIZE
     even

@@ -16,3 +16,5 @@ src/cubes.bin
 cubes_preview.png
 tools/hatari-pm/
 tools/hatari-pm-build/
+src/shapes.bin
+shapes_preview.png

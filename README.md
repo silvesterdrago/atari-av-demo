@@ -122,6 +122,26 @@ worth risking a refactor. Once a show on the core has earned its keep,
 |---|---|
 | `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
 | `GLYPHS` | lines of text marching up a hardware-scrolled field; pads pick the line, hard hits chew it |
+| `SHAPES` | the cubes show with a different solid per pad — cube, cut stone, octahedron, plus, tetrahedron, star, hex prism, pyramid |
+
+#### SHAPES and the memory budget
+
+Eight solids at eight scales and twelve angles, baked by
+`tools/genshapes.py`. Sizing was the whole design decision: at the cubes
+show's 96×96 box that set would be 663 KB, which is uncomfortable in 1 MB
+next to ~100 KB of BSS. At 64×64 it is 384 KB, and a 64 px figure still sits
+comfortably in a 160 px cell. Measured zero frame overruns — the blit is two
+longs per row against the cubes' three, over 64 rows instead of 96.
+
+Two 68000 traps worth remembering, both found by looking at the screen:
+
+* `divu` divides the **whole 32-bit register**. Masking only the low word
+  left stale bits in the high word, which corrupted the angle and indexed a
+  random sprite — one cell rendered as vertical bars. Worse, if the quotient
+  overflows 16 bits `divu` leaves the register untouched, so the failure is
+  silent.
+* The flat solids (plus, star) vanish into a single line when seen edge-on,
+  so they are extruded deeper than looks right on paper.
 
 #### GLYPHS and the shear
 

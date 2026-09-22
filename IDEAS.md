@@ -46,7 +46,7 @@ Each idea is now its own file in `src/shows/` on top of `src/core/`, building
 its own binary. See the README for the three hooks. Adding an idea means one
 file and nothing else — no scene tables, no touching a working show.
 
-Done so far: `SPARKS`, `GLYPHS`.
+Done so far: `SPARKS`, `GLYPHS`, `SHAPES`.
 
 ## Visual material
 
@@ -61,11 +61,6 @@ The screen base register steps 256 bytes: three rows down and 128 pixels
 sideways. In the moire field that shear is cancelled on purpose, because the
 stripe patterns repeat every 16 pixels. Writing pages with an offset instead
 would turn it into a controlled diagonal crawl.
-
-### More than cubes
-The sprite baking in `tools/gencubes.py` is not cube-specific — any wireframe
-solid drops in. Independent rotation axes per cell, or a different solid per
-pad, are both just generator changes.
 
 ---
 

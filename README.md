@@ -123,7 +123,40 @@ worth risking a refactor. Once a show on the core has earned its keep,
 | `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
 | `GLYPHS` | lines of text marching up a hardware-scrolled field; pads pick the line, hard hits chew it |
 | `SHAPES` | the cubes show with a different solid per pad — cube, cut stone, octahedron, plus, tetrahedron, star, hex prism, pyramid |
+| `SOLIDS` | the eight solids **filled** and dither-shaded, filling their cells |
 | `VECTORS` | **parked.** Vertex tables, figures filling the cell — but capping the work per frame makes them visibly come apart as they redraw. See IDEAS.md |
+
+#### SOLIDS: filling beats stroking, by a lot
+
+An outline costs about 50 cycles a pixel. A filled span costs about one,
+because a byte write covers eight. That is why demos shade with ordered
+dither rather than stroke wireframes — and a filled solid also has a
+silhouette, where a dense wireframe is just a heap of pixels.
+
+Everything expensive is baked by `tools/gensolids.py`: rotation, projection,
+backface culling and each face's lighting level. The ST sorts three points
+and fills spans. 108 KB for eight solids at eight scales and twenty-four
+angles.
+
+Unlike `VECTORS`, a cell is blanked and completely redrawn inside one pass,
+so nothing is ever seen half-built.
+
+Where the time goes, measured:
+
+| | overruns per 64 frames |
+|---|---|
+| first version: edge accumulators in memory, `bsr` per span | **58** |
+| same, with the per-row `movem` and `mulu` removed | **59** |
+
+That second number is the useful one: tightening the row loop bought almost
+nothing, which says the cost is not where I assumed. A row costs roughly 180
+cycles of fixed overhead against 40 of actual filling, so what matters is
+**how many rows**, not how fast each one is. Triangulating every face doubles
+the row count, because a quad's two triangles each walk their own rows.
+
+So the next lever is a convex-polygon filler — fill a quad as a quad, with a
+left and right edge chain — which should roughly halve the rows. Until then
+a solid takes about 1.8 frames and a cell refreshes around 5 Hz.
 
 #### VECTORS: what filling the cell actually costs
 

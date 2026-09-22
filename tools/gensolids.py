@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""Bake eight solids as filled, dither-shaded triangles.
+
+Outlines were the wrong primitive: about 50 cycles a pixel, and a dense
+wireframe reads as a heap of pixels. A filled span is about one cycle a
+pixel, because a word write covers sixteen -- so the solids are filled with
+ordered dither instead, which is both far cheaper and has a silhouette.
+
+Everything the ST cannot afford is done here: rotation, projection, backface
+culling, and the lighting level per face. All the machine does is fill spans.
+
+    python3 tools/gensolids.py      # writes src/solids.bin + preview
+
+File layout:
+    0..31   dither table, 8 levels x 4 rows, one byte each (8x4 cell)
+    32..    poses, a flat array with a fixed stride:
+            ((shape*SCALES + scale)*ANGLES + angle) * STRIDE
+            each pose: nverts.b, ntris.b,
+                       verts[nverts] x { x.b, y.b } signed, cell-relative,
+                       tris[ntris]  x { i0.b, i1.b, i2.b, level.b }
+"""
+import math, os, struct, zlib
+
+SCALES, ANGLES = 8, 24
+STRIDE  = 72
+EXTENT  = 70
+LEVELS  = 8
+LIGHT   = (-0.45, -0.72, 0.53)
+OUT     = "src/solids.bin"
+PREVIEW = "solids_preview.png"
+
+BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]]
+
+
+def dither_table():
+    """level -> four bytes, one per row of the 8x4 cell"""
+    tbl = []
+    for lvl in range(LEVELS):
+        thresh = (lvl + 1) * 16 // (LEVELS + 1)     # never 0, never 16
+        for r in range(4):
+            b = 0
+            for x in range(8):
+                if BAYER[r][x % 4] < thresh:
+                    b |= 0x80 >> x
+            tbl.append(b)
+    return bytes(tbl)
+
+
+def ring(n, y, r, phase=0.0):
+    return [(r*math.cos(phase+i*2*math.pi/n), y, r*math.sin(phase+i*2*math.pi/n))
+            for i in range(n)]
+
+def cube():
+    v = [(-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1),
+         (-1,-1, 1),(1,-1, 1),(1,1, 1),(-1,1, 1)]
+    f = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[3,2,6,7],[0,3,7,4],[1,2,6,5]]
+    return v, f
+
+def slab():
+    v = [(-1,-0.42,-1),(1,-0.42,-1),(1,0.42,-1),(-1,0.42,-1),
+         (-1,-0.42, 1),(1,-0.42, 1),(1,0.42, 1),(-1,0.42, 1)]
+    f = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[3,2,6,7],[0,3,7,4],[1,2,6,5]]
+    return v, f
+
+def octahedron():
+    v = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)]
+    f = [[0,2,4],[0,4,3],[0,3,5],[0,5,2],[1,4,2],[1,3,4],[1,5,3],[1,2,5]]
+    return v, f
+
+def tetrahedron():
+    v = [(1,1,1),(1,-1,-1),(-1,1,-1),(-1,-1,1)]
+    return v, [[0,1,2],[0,2,3],[0,3,1],[1,3,2]]
+
+def pyramid():
+    v = [(-1,0.7,-1),(1,0.7,-1),(1,0.7,1),(-1,0.7,1),(0,-1.1,0)]
+    return v, [[0,1,2,3],[0,1,4],[1,2,4],[2,3,4],[3,0,4]]
+
+def hexprism():
+    v = ring(6,-0.8,1.0) + ring(6,0.8,1.0)
+    f = [[0,1,2,3,4,5],[6,7,8,9,10,11]]
+    f += [[i,(i+1)%6,6+(i+1)%6,6+i] for i in range(6)]
+    return v, f
+
+def diamond():
+    """hexagonal bipyramid -- a crystal"""
+    v = ring(6,0.0,1.0) + [(0,-1.25,0),(0,1.05,0)]
+    f = [[i,(i+1)%6,6] for i in range(6)] + [[i,(i+1)%6,7] for i in range(6)]
+    return v, f
+
+def triprism():
+    v = ring(3,-0.85,1.05) + ring(3,0.85,1.05)
+    f = [[0,1,2],[3,4,5]] + [[i,(i+1)%3,3+(i+1)%3,3+i] for i in range(3)]
+    return v, f
+
+SHAPES = [("cube",cube),("diamond",diamond),("octahedron",octahedron),
+          ("pyramid",pyramid),("tetra",tetrahedron),("hexprism",hexprism),
+          ("triprism",triprism),("slab",slab)]
+
+
+def norm(a):
+    l = math.sqrt(sum(c*c for c in a)) or 1.0
+    return tuple(c/l for c in a)
+
+def sub(a,b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
+def cross(a,b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+def dot(a,b): return sum(x*y for x,y in zip(a,b))
+
+
+def fix_winding(verts, faces):
+    """convex solids sit around the origin, so an outward normal points away
+    from the centroid -- flip any face that does not"""
+    out = []
+    for f in faces:
+        n = cross(sub(verts[f[1]], verts[f[0]]), sub(verts[f[2]], verts[f[0]]))
+        c = [sum(verts[i][k] for i in f)/len(f) for k in range(3)]
+        out.append(list(reversed(f)) if dot(n, c) < 0 else list(f))
+    return out
+
+
+def rotate(v, ax, ay):
+    x,y,z = v
+    y,z = y*math.cos(ax)-z*math.sin(ax), y*math.sin(ax)+z*math.cos(ax)
+    x,z = x*math.cos(ay)+z*math.sin(ay), -x*math.sin(ay)+z*math.cos(ay)
+    return x,y,z
+
+
+def project(v, f):
+    x,y,z = v
+    d = 4.0
+    k = d/(d-z)
+    return x*f*k, y*f*k
+
+
+def build_pose(verts, faces, si, ai, pf):
+    s  = 0.74 + 0.26*(si/(SCALES-1))
+    ax = ai*2*math.pi/ANGLES
+    ay = ai*2*math.pi/ANGLES*0.618
+    rv = [rotate([c*s for c in v], ax, ay) for v in verts]
+    pv = [project(v, pf) for v in rv]
+    tris = []
+    for f in faces:
+        n = norm(cross(sub(rv[f[1]], rv[f[0]]), sub(rv[f[2]], rv[f[0]])))
+        if n[2] <= 0.02:                       # facing away, or edge-on
+            continue
+        lit = max(0.0, dot(n, LIGHT))
+        lvl = min(LEVELS-1, 1 + int(lit*(LEVELS-1)))   # never level 0: a face
+        for k in range(1, len(f)-1):                   # at black is invisible
+            tris.append((f[0], f[k], f[k+1], lvl))
+    return pv, tris
+
+
+# calibrate the projection so the biggest pose just reaches EXTENT
+worst = 0.0
+for name, fn in SHAPES:
+    v, f = fn(); f = fix_winding(v, f)
+    for si in (SCALES-1,):
+        for ai in range(ANGLES):
+            pv, _ = build_pose(v, f, si, ai, 1.0)
+            for x, y in pv:
+                worst = max(worst, abs(x), abs(y))
+PF = EXTENT/worst
+print(f"projection factor {PF:.2f} -> max extent {EXTENT} px")
+
+blob = bytearray(dither_table())
+assert len(blob) == 32
+maxblob, maxtris = 0, 0
+for name, fn in SHAPES:
+    v, f = fn(); f = fix_winding(v, f)
+    for si in range(SCALES):
+        for ai in range(ANGLES):
+            pv, tris = build_pose(v, f, si, ai, PF)
+            b = bytearray()
+            b += struct.pack('BB', len(pv), len(tris))
+            for x, y in pv:
+                b += struct.pack('bb', max(-128,min(127,round(x))),
+                                       max(-128,min(127,round(y))))
+            for i0,i1,i2,lvl in tris:
+                b += struct.pack('BBBB', i0, i1, i2, lvl)
+            maxblob = max(maxblob, len(b)); maxtris = max(maxtris, len(tris))
+            assert len(b) <= STRIDE, (name, len(b))
+            blob += b + bytes(STRIDE-len(b))
+
+os.makedirs("src", exist_ok=True)
+open(OUT,'wb').write(blob)
+for name, fn in SHAPES:
+    v, f = fn()
+    print(f"  {name:11s} {len(v):2d} verts {len(f):2d} faces")
+print(f"largest pose {maxblob} bytes of {STRIDE}, up to {maxtris} visible triangles")
+print(f"{OUT}: {len(blob)} bytes ({len(blob)/1024:.0f} KB)")
+print(f"asm: SOL_SCALES={SCALES} SOL_ANGLES={ANGLES} SOL_STRIDE={STRIDE} "
+      f"SOL_POSES_OFF=32 SOL_LEVELS={LEVELS}")
+
+
+# ---- preview: fill the triangles the same way the ST will ----
+def write_png(path, w, h, rows):
+    raw = b''.join(b'\x00'+bytes(r) for r in rows)
+    def chunk(t,d):
+        c=t+d
+        return struct.pack('>I',len(d))+c+struct.pack('>I',zlib.crc32(c)&0xffffffff)
+    open(path,'wb').write(b'\x89PNG\r\n\x1a\n'
+        + chunk(b'IHDR', struct.pack('>IIBBBBB',w,h,8,0,0,0,0))
+        + chunk(b'IDAT', zlib.compress(raw,9)) + chunk(b'IEND',b''))
+
+CW, CH, cols = 160, 200, 4
+pw, ph = CW*cols, CH*2
+rows = [bytearray([0]*pw) for _ in range(ph)]
+DT = dither_table()
+
+def fill_tri(p0, p1, p2, lvl, cx, cy):
+    pts = sorted([p0,p1,p2], key=lambda p: p[1])
+    (x0,y0),(x1,y1),(x2,y2) = pts
+    def edge(ya, xa, yb, xb, y):
+        if yb == ya: return xa
+        return xa + (xb-xa)*(y-ya)/(yb-ya)
+    for y in range(int(round(y0)), int(round(y2))+1):
+        if y < y1:
+            xa, xb = edge(y0,x0,y2,x2,y), edge(y0,x0,y1,x1,y)
+        else:
+            xa, xb = edge(y0,x0,y2,x2,y), edge(y1,x1,y2,x2,y)
+        if xa > xb: xa, xb = xb, xa
+        sy = int(cy+y)
+        if not (0 <= sy < ph): continue
+        pat = DT[lvl*4 + (sy & 3)]
+        for x in range(int(round(cx+xa)), int(round(cx+xb))+1):
+            if 0 <= x < pw and (pat >> (7-(x & 7))) & 1:
+                rows[sy][x] = 255
+
+for i,(name,fn) in enumerate(SHAPES):
+    v,f = fn(); f = fix_winding(v,f)
+    pv, tris = build_pose(v, f, SCALES-1, 4, PF)
+    cx = (i % cols)*CW + CW//2
+    cy = (i//cols)*CH + CH//2
+    for i0,i1,i2,lvl in tris:
+        fill_tri(pv[i0], pv[i1], pv[i2], lvl, cx, 0) if False else None
+        # y is handled inside via cy
+        p0 = (pv[i0][0], pv[i0][1]); p1 = (pv[i1][0], pv[i1][1]); p2 = (pv[i2][0], pv[i2][1])
+        fill_tri(p0, p1, p2, lvl, cx, cy)
+write_png(PREVIEW, pw, ph, rows)
+print(f"{PREVIEW}: {pw}x{ph}")

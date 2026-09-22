@@ -46,7 +46,7 @@ Each idea is now its own file in `src/shows/` on top of `src/core/`, building
 its own binary. See the README for the three hooks. Adding an idea means one
 file and nothing else — no scene tables, no touching a working show.
 
-Done so far: `SPARKS`, `GLYPHS`, `SHAPES`, `VECTORS`.
+Done so far: `SPARKS`, `GLYPHS`, `SHAPES`, `SOLIDS`. `VECTORS` is parked.
 
 ## Filled solids, not wireframes
 
@@ -69,6 +69,10 @@ Two things make it cheaper still, and both are free:
 * **Bake the visible-face list per pose.** The generator already knows every
   vertex position at every angle, so it can work out which faces point at the
   camera and store that list. Backface culling then costs nothing at runtime.
+* **Fill quads as quads.** `SOLIDS` triangulates every face, which doubles
+  the row count, and a row is ~180 cycles of overhead against ~40 of filling.
+  A convex-polygon filler walking a left and a right edge chain should roughly
+  halve the work. This is the measured next lever.
 * **Bake the spans, not the vertices.** For a fixed set of poses the generator
   could emit, per face, the left and right x for each row — then the ST does
   nothing but write words.

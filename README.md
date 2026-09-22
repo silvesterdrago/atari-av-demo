@@ -91,11 +91,29 @@ are baked by `tools/gencubes.py` into 128 sprites (8 scales x 16 angles) and
 the ST only copies them. Each tile is opaque and covers the cube's whole box,
 so there is no erase pass at all: one write per cube per frame.
 
-Glitches ride on velocity:
+### Velocity
 
-* above `GLITCH_VEL` the cube tears into horizontal slabs for a few frames
-* above `SHEAR_VEL` the whole picture slips sideways, which is free because it
-  is only the screen base register moving
+MPK pads bunch their dynamics up at the bottom and then pin at the top. A real
+take gave `11, 18, 26, 33, 37, 41, 52, 83, 93, 101` and then six hits at `127`.
+A linear map therefore wastes the whole soft half — velocity 11 landed on scale
+zero, so a third of the hits did nothing visible at all.
+
+Velocity now goes through `vel_tbl`, which is `255*(v/127)^0.65`. That lifts a
+gentle tap to scale 1-2 and still leaves the top of the range intact.
+
+| velocity | 11 | 26 | 41 | 52 | 83 | 101 | 127 |
+|---|---|---|---|---|---|---|---|
+| curved | 52 | 91 | 122 | 143 | 193 | 220 | 255 |
+| was (linear) | 22 | 52 | 82 | 104 | 166 | 202 | 254 |
+
+Glitches:
+
+* above `GLITCH_VEL` (on the curved value) the cube tears into horizontal
+  slabs for a few frames
+* the whole-picture shear runs off **accumulated** energy rather than a single
+  hit, because the pads saturate at 127 and cannot tell hard from very hard —
+  density still carries information. It fires as a short burst with a lockout;
+  held on continuously it just reads as broken sync rather than an accent
 
 Two things the tearing code has to get right, both learned the hard way:
 

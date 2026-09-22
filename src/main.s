@@ -97,9 +97,12 @@ CUBE_SPRITE   equ CUBE_W_BYTES*CUBE_H
 CUBE_ANGLES   equ 16
 CUBE_SCALES   equ 8
 CUBE_DECAY    equ 5
-GLITCH_VEL    equ $d0           ; hit this hard and the cube tears
+GLITCH_VEL    equ 240           ; curved level at which the cube tears
 GLITCH_FRAMES equ 14
-SHEAR_VEL     equ $e0           ; and the whole picture slips sideways
+SHEAR_VEL     equ $e0           ; accumulated energy at which the picture slips.
+                                ; Deliberately NOT single-hit velocity: the pads
+                                ; saturate at 127, so hard and very hard are the
+                                ; same number. Density still carries information.
 
     section text
 
@@ -686,17 +689,33 @@ cubes_frame:
     cmp.w   #8,d7
     bcs     .each
 
-    ; --- the whole picture slips on a really hard hit. Two byte writes.
-    move.l  buf_base,d0
+    ; --- whole-picture shear. Two byte writes, so it is free.
+    ; Fired as a short burst when the playing gets dense, then locked out.
+    ; Held on continuously it just reads as broken sync; as an accent it lands.
+    tst.w   shear_cool
+    beq.s   .cooled
+    subq.w  #1,shear_cool
+.cooled:
+    tst.w   shear_ctr
+    bne.s   .armed
+    tst.w   shear_cool
+    bne.s   .armed
     cmp.w   #SHEAR_VEL,level
-    bcs.s   .noshear
-    bsr     next_rng
+    bcs.s   .armed
+    move.w  #6,shear_ctr
+    move.w  #45,shear_cool
+.armed:
+    move.l  buf_base,d0
+    tst.w   shear_ctr
+    beq.s   .setbase
+    subq.w  #1,shear_ctr
+    bsr     next_rng            ; leaves d0 alone
     move.w  d3,d1
     and.w   #3,d1
     lsl.w   #8,d1
     and.l   #$ffff,d1
     add.l   d1,d0
-.noshear:
+.setbase:
     bsr     set_screen_base
     rts
 
@@ -1223,12 +1242,23 @@ poll_midi:
     bne     .next
     tst.b   d0
     beq     .next
-    lsl.w   #1,d0
-    cmp.w   #$ff,d0
+    ; velocity through the curve
+    and.w   #$7f,d0
+    lea     vel_tbl,a0
+    move.b  (a0,d0.w),d0
+    and.w   #$ff,d0             ; d0 = curved strength, 0..255
+
+    ; The global level ACCUMULATES rather than being replaced, so it tracks
+    ; how hard you are playing overall. Single-hit velocity tops out at 127
+    ; and cannot tell a hard hit from a very hard one; density can.
+    move.w  d0,d1
+    lsr.w   #1,d1
+    add.w   level,d1
+    cmp.w   #$ff,d1
     bcs.s   .noclip
-    move.w  #$ff,d0
+    move.w  #$ff,d1
 .noclip:
-    move.w  d0,level
+    move.w  d1,level
     clr.w   idle_ticks
     ; note number nudges the moire frequency, so pitch changes the pattern
     moveq   #0,d1
@@ -1319,6 +1349,20 @@ scene_frame_tbl:
 pad_tbl:
     dc.w    128, 256, 512, 896, 1280, 1792, 2560, 3584
     even
+; Velocity curve. MPK pads bunch their dynamics up at the bottom -- a real
+; take gave 11,18,26,33,37,41,52,83,93,101 and then six hits pinned at 127 --
+; so a linear map wastes the whole soft half and saturates the top. This is
+; 255*(v/127)^0.65, which lifts a gentle tap into something visible.
+vel_tbl:
+    dc.b      0, 11, 17, 22, 27, 31, 35, 39, 42, 46, 49, 52, 55, 58, 61, 64
+    dc.b     66, 69, 72, 74, 77, 79, 82, 84, 86, 89, 91, 93, 95, 98,100,102
+    dc.b    104,106,108,110,112,114,116,118,120,122,124,126,128,130,132,134
+    dc.b    135,137,139,141,143,144,146,148,150,151,153,155,157,158,160,162
+    dc.b    163,165,167,168,170,172,173,175,176,178,180,181,183,184,186,187
+    dc.b    189,190,192,193,195,196,198,199,201,202,204,205,207,208,210,211
+    dc.b    213,214,215,217,218,220,221,223,224,225,227,228,230,231,232,234
+    dc.b    235,236,238,239,240,242,243,244,246,247,248,250,251,252,254,255
+    even
 cube_data:
     incbin  "src/cubes.bin"
 new_pal:
@@ -1354,6 +1398,8 @@ cycle_ctr:      ds.w 1
 base_page:      ds.w 1
 field_step:     ds.w 1
 cubes_idle:     ds.w 1
+shear_ctr:      ds.w 1
+shear_cool:     ds.w 1
 moire_half:     ds.w 1
 moire_step:     ds.w 1
 moire_phase:    ds.w 1

@@ -15,13 +15,13 @@
 ;  About 18 rows put back and 18 drawn a frame: ~11k cycles of 112k. The
 ;  grid runs at the full 71 Hz with nine tenths of the frame unspent.
 ;
-;  A line's FILL travels with it: the generator gives every (phase, line)
-;  its own pattern, dense underfoot and a scatter of dots near the
-;  horizon. That is what lets the lines run all the way up to the
-;  horizon, where they land on the same rows and merge -- as a gradient
-;  rather than as the slab of stair-steps a solid fill made of them.
-;  The vanishing point of the converging lines is hidden behind the city
-;  for the same reason: nothing should pinch to a point on screen.
+;  The fill is a function of the MOMENT, not of depth: every line on
+;  screen carries the same pattern and that pattern steps through a cycle
+;  over time. The strobe is the effect, not a side effect -- and it is
+;  also why lines merging near the horizon do not matter, since what
+;  merges is changing anyway. The vanishing point of the converging lines
+;  is still hidden behind the city: a point pinching on screen is a
+;  different problem, and a static one.
 ;======================================================================
 POOL_SIZE   equ 1024            ; no noise here
 RANGE_PAGES equ 131             ; 256 pages: two whole screens, 32768 apart
@@ -32,7 +32,10 @@ PHASES      equ 64
 ROWB        equ 80              ; bytes in a screen row; mono only
 BACK        equ 32768           ; the other screen
 GR_TBL      equ 32000           ; after the background: PHASES x NLINES of
-ENTRY       equ 4               ; row.w, fill.b, thick.b
+ENTRY       equ 4               ; row.w, thick.b, spare.b
+NFILL       equ 8               ; must match tools/gengrid.py
+GR_FILL     equ GR_TBL+PHASES*NLINES*ENTRY
+STROBE      equ 1               ; the fill steps every 1<<STROBE frames
 
 SPEED_BASE  equ 900             ; phase per frame at rest: ~18 frames a slot
 SPEED_DECAY equ 70
@@ -59,6 +62,7 @@ show_init:
     move.w  #SPEED_BASE,gspeed
     clr.w   gphase
     clr.w   gflash
+    clr.w   gtick
     move.w  #1,back_side        ; screen A is on show, so draw into B
     lea     prev_rows,a0        ; neither buffer has lines on it yet
     move.w  #NLINES*4-1,d0      ; two screens, row and thickness each
@@ -88,6 +92,14 @@ show_frame:
     bne.s   .noflash
     move.w  #$000,PALETTE_HW    ; back to white ink on black
 .noflash:
+
+    ; --- this moment's fill, which every line will use
+    addq.w  #1,gtick
+    move.w  gtick,d0
+    lsr.w   #STROBE,d0
+    and.w   #NFILL-1,d0
+    lea     grid_data+GR_FILL,a0
+    move.b  (a0,d0.w),gfill
 
     ; --- which screen we draw into, and its own record of what is on it
     move.w  back_side,d0
@@ -139,10 +151,11 @@ show_frame:
     move.w  #NLINES-1,gi
 .draw:
     move.w  (a2)+,d0            ; row
-    moveq   #0,d1
-    move.b  (a2)+,d1            ; its fill, which travelled with it
     moveq   #0,d2
-    move.b  (a2)+,d2            ; and its thickness
+    move.b  (a2)+,d2            ; thickness
+    addq.l  #1,a2               ; the spare byte
+    moveq   #0,d1
+    move.b  gfill,d1            ; the same fill for every line this frame
     move.w  d0,(a4)+            ; what the next pass here has to undo
     move.w  d2,(a4)+
     tst.w   d0
@@ -213,6 +226,7 @@ show_note_on:                   ; d0 = strength, d1 = pad*2
     move.w  #$7000,d2
 .ok:
     move.w  d2,gspeed
+    clr.w   gtick               ; the strobe restarts dense on the beat
     cmp.w   #FLASH_AT,d0
     bcs.s   .done
     move.w  #$777,PALETTE_HW    ; one word, and the whole display inverts
@@ -236,6 +250,8 @@ prev_rows:      ds.w NLINES*4   ; per screen: row and thickness a line
 gspeed:         ds.w 1
 gphase:         ds.w 1
 gflash:         ds.w 1
+gtick:          ds.w 1
+gfill:          ds.w 1
 back_side:      ds.w 1
 gi:             ds.w 1
 gthick:         ds.w 1

@@ -111,28 +111,15 @@ for i in range(NCONV):
 hline(HORIZON, 0, W-1)                          # the horizon itself, solid
 
 # ------------------------------------------------------------ the row table
-# A line's FILL comes from where it is, not from which line it is. That is
-# the whole trick borrowed from the reference: a line arriving out of the
-# distance starts as a scatter of dots and thickens as it comes, so the far
-# ones can run right up to the horizon and merge without turning into a
-# slab. It also means every line's pattern changes as it travels, which is
-# what makes the floor read as moving rather than as a ladder sliding.
+# The fill is NOT a function of depth. It is a function of the moment: every
+# line on screen carries the same pattern, and that pattern steps through a
+# cycle over time. The strobe that comes out of it is the effect, not a side
+# effect -- and it is also why merging lines near the horizon do not matter,
+# since the thing that merges is changing anyway.
 #
-# Equal densities alternate their bit phase between neighbours, because two
-# dotted rows with the same phase line their dots up into columns -- which
-# is the moire that made the old far lines look like stair-steps.
-# Only the last strip before the horizon thins out. The floor underfoot has
-# to stay bold: a ramp that starts thinning at mid-screen turns every line
-# into a dashed line and the floor stops reading as a floor at all.
-FILLS = [                       # (nearness, even-line fill, odd-line fill)
-    (0.30, 0xFF, 0xFF),         # rows 260..398
-    (0.20, 0xEE, 0x77),         # 240..259
-    (0.14, 0xAA, 0x55),         # 228..239
-    (0.09, 0x88, 0x22),         # 218..227
-    (0.05, 0x80, 0x08),         # 210..217
-    (0.00, 0x80, 0x02),         # the last few, almost at the horizon
-]
-FAR   = float(H-1 - HORIZON)
+# So the table carries only where a line is and how thick, and the fills sit
+# in their own cycle afterwards.
+FILLCYCLE = [0xFF, 0xFF, 0xEE, 0xAA, 0x55, 0xAA, 0xEE, 0xFF]
 
 rows = bytearray()
 dropped = 0
@@ -149,23 +136,22 @@ for k in range(PHASES):
             dropped += 1
             continue
         seen.add(y)
-        d = (y - HORIZON)/FAR       # 1 underfoot, 0 at the horizon
-        for lim, pe, po in FILLS:
-            if d >= lim:
-                pat = pe if (i & 1) == 0 else po
-                break
-        thick = 2 if d > 0.80 else 1    # only the nearest few
-        rows += struct.pack('>hBB', y, pat, thick)
+        d = (y - HORIZON)/float(H-1 - HORIZON)
+        thick = 2 if d > 0.80 else 1    # weight underfoot, not a fill
+        rows += struct.pack('>hBB', y, thick, 0)
 
-style = b''                     # the fill travels with the row now
-blob = bytes(fb) + bytes(rows)
+fills = bytes(FILLCYCLE)
+blob = bytes(fb) + bytes(rows) + fills
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'wb').write(blob)
 print(f"{OUT}: {len(blob)} bytes ({len(fb)} background"
-      f" + {len(rows)} row table, 4 bytes an entry)")
+      f" + {len(rows)} row table, 4 bytes an entry"
+      f" + {len(fills)} fill cycle)")
 print(f"  {dropped} of {PHASES*NLINES} entries are duplicate rows, skipped")
 e0 = [struct.unpack('>hBB', rows[4*i:4*i+4]) for i in range(NLINES)]
-print(f"  phase 0:      {[(y, hex(pa), t) for y, pa, t in e0]}")
+print(f"  phase 0 rows: {[y for y, t, _ in e0]}")
+print(f"  fill cycle:   {[hex(f) for f in FILLCYCLE]}")
+print(f"  src/shows/grid.s must use NFILL equ {len(FILLCYCLE)}")
 print(f"  src/shows/grid.s must use NLINES equ {NLINES}, PHASES equ {PHASES}")
 
 # --------------------------------------------------------------- preview
@@ -184,12 +170,15 @@ for y in range(H):
     for x in range(W):
         pix[y*W+x] = 255 if fb[y*80 + (x >> 3)] >> (7 - (x & 7)) & 1 else 0
 # what it will look like with the first phase's lines on it
-for y, pat, thick in e0:
-    if y < 0:
-        continue
-    for t in range(thick):
-        for x in range(W):
-            if pat >> (7 - (x & 7)) & 1:
-                pix[(y+t)*W+x] = 255
-png(PREVIEW, pix, W, H)
-print(f"{PREVIEW}: written")
+for name, pat in (("", max(FILLCYCLE)), ("_sparse", min(FILLCYCLE))):
+    p2 = bytearray(pix)
+    for y, thick, _ in e0:
+        if y < 0:
+            continue
+        for t in range(thick):
+            for x in range(W):
+                if pat >> (7 - (x & 7)) & 1:
+                    p2[(y+t)*W+x] = 255
+    out = PREVIEW.replace(".png", name + ".png")
+    png(out, p2, W, H)
+    print(f"{out}: written, fill {hex(pat)}")

@@ -33,7 +33,38 @@ HATARI_FILE := hatari $(COMMON)
 # input down with it. Hence --midi-out /dev/null.
 MIDIOPTS := --midi-in $(FIFO) --midi-out /dev/null
 
-all: $(TARGET)
+# --- shows ----------------------------------------------------------------
+# Each source in src/shows/ is one idea and builds its own binary on top of
+# src/core/. dist/NOISEAV.TOS is the older all-in-one show and is left alone.
+SHOW_SRCS := $(wildcard src/shows/*.s)
+SHOW_DEPS := src/core/head.s src/core/tail.s
+SHOW_BINS :=
+
+define SHOW_RULE
+SHOW_BINS += dist/$(shell echo $(notdir $(basename $(1))) | tr a-z A-Z).TOS
+dist/$(shell echo $(notdir $(basename $(1))) | tr a-z A-Z).TOS: $(1) $$(SHOW_DEPS) | $$(VASM) dist
+	$$(VASM) -Ftos -quiet -o $$@ $$<
+endef
+$(foreach s,$(SHOW_SRCS),$(eval $(call SHOW_RULE,$(s))))
+
+all: $(TARGET) $(SHOW_BINS)
+
+shows: $(SHOW_BINS)
+	@ls -la $(SHOW_BINS)
+
+# Run one show: make run-show SHOW=SPARKS   (add MIDI with run-show-live)
+SHOW ?= SPARKS
+SHOWRUN := --gemdos-drive C -d dist --auto 'C:\$(SHOW).TOS'
+
+run-show: dist/$(SHOW).TOS
+	$(HATARI_BIN) --tos $(TOS) --machine st --memsize 1 --monitor mono \
+	              --sound off $(SHOWRUN)
+
+run-show-live: dist/$(SHOW).TOS $(BRIDGE) fifo
+	@$(BRIDGE) -o $(FIFO) & echo $$! > /tmp/noiseav-bridge.pid
+	-hatari --tos $(TOS) --machine st --memsize 1 --monitor mono \
+	        --sound off $(SHOWRUN) $(MIDIOPTS)
+	@kill `cat /tmp/noiseav-bridge.pid` 2>/dev/null; rm -f /tmp/noiseav-bridge.pid
 
 $(TARGET): src/main.s src/cubes.bin | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
@@ -109,4 +140,4 @@ clean:
 distclean: clean
 	rm -rf tools/vasm tools/vlink tools/*.tar.gz tools/hatari-pm-build
 
-.PHONY: all tools fifo run run-live run-midi run-pm midi-list diag clean distclean
+.PHONY: all shows tools fifo run run-live run-midi run-pm run-show run-show-live midi-list diag clean distclean

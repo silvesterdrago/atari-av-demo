@@ -74,7 +74,55 @@ make run-midi
 
 ESC quits the show and returns to the desktop.
 
-## Scenes
+## Layout: core plus one file per show
+
+```
+src/core/head.s     takes over the machine, sets up the screen, runs the loop
+src/core/tail.s     MIDI ACIA + ring + parser, timers, envelope, diagnostics
+src/shows/*.s       one idea per file, one binary per file
+src/main.s          the older all-in-one show -- left alone on purpose
+```
+
+A show includes the core around itself and supplies three entry points:
+
+| hook | when |
+|---|---|
+| `show_init` | once, after the screen is set up and cleared |
+| `show_frame` | once per vertical blank |
+| `show_note_on` | `d0` = strength 0..255 (velocity through the curve), `d1` = pad index * 2 |
+
+```asm
+    include "src/core/head.s"
+show_init:     ...  rts
+show_frame:    ...  rts
+show_note_on:  ...  rts
+    include "src/core/tail.s"
+    section bss
+my_state:  ds.w 1
+```
+
+```
+make shows                      # build every show
+make run-show SHOW=SPARKS       # run one
+make run-show-live SHOW=SPARKS  # run one with all MIDI devices
+```
+
+Any key is a full-strength hit on one of the eight pads, so a show can be
+driven with nothing plugged in.
+
+**Caveat worth knowing:** `src/core/` was copied out of `src/main.s` rather
+than extracted from underneath it, so the two share code by duplication for
+now. That was deliberate — `main.s` is the show that works and it was not
+worth risking a refactor. Once a show on the core has earned its keep,
+`main.s` should be ported onto it and the copy deleted.
+
+### Shows
+
+| show | idea |
+|---|---|
+| `SPARKS` | each pad throws a burst of particles from its cell; they arc under gravity and die at the edges. Single pixels, so ~20 000 cycles for 160 particles |
+
+## Scenes (src/main.s, the all-in-one show)
 
 The show is **scene 1, the cubes**. Keys `1`-`5` switch; `0` re-enables
 auto-cycling; `ESC` quits. Any other key is a manual hit, so you can drive it

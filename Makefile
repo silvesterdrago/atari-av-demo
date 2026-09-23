@@ -55,6 +55,8 @@ src/grid.bin: tools/gengrid.py
 	python3 tools/gengrid.py
 src/hyper.bin: tools/genhyper.py
 	python3 tools/genhyper.py
+src/half.bin: tools/genhalf.py
+	python3 tools/genhalf.py
 src/solids.bin: tools/gensolids.py
 	python3 tools/gensolids.py
 src/shapes.bin: tools/genshapes.py
@@ -65,6 +67,7 @@ src/vectors.bin: tools/genvectors.py
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
 dist/HYPER.TOS:    src/hyper.bin
+dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc
 dist/SOLIDS.TOS:   src/solids.bin
 dist/SHAPES.TOS:   src/shapes.bin
 dist/VECTORS.TOS:  src/vectors.bin
@@ -159,7 +162,7 @@ clean:
 	rm -rf dist dist-*
 	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
 	rm -f src/big.bin src/grid.bin grid_preview.png grid_preview_sparse.png
-	rm -f src/hyper.bin hyper_preview.png
+	rm -f src/hyper.bin hyper_preview.png src/half.bin half_preview.png
 	rm -f src/solids.bin src/shapes.bin src/vectors.bin
 
 distclean: clean

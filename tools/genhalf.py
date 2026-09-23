@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Bake a halftone screen: one sprite a dot size, plus the wave tables.
+"""Bake a halftone ripple tank: dots sized by waves spreading from anchors.
 
-The arithmetic here is about what a full screen costs to touch at all. Even
-a straight copy is 4.6 cycles a byte, so 32000 bytes is 1.3 frames -- a
-halftone that redraws every cell every frame cannot run at 71 Hz whatever
-it does. What makes it work is that a dot's sprite covers its WHOLE cell,
-black surround included, so there is no clearing and a cell only needs
-touching when its dot changes SIZE. On a field that moves smoothly that is
-a third of the cells, and a third of two frames fits inside one.
+Eight anchors sit on the grid, one a pad. A hit sends a ripple out from its
+anchor; ripples from different anchors add, so they interfere, and each fades
+as it goes. With nothing playing every dot sits at its resting size, small.
+
+Three things are baked because none of them can be afforded per cell:
+
+  * NEGD, one byte a (anchor, cell): minus the distance from that anchor,
+    in eighths of a cell. The frame adds the wavefront position to it and
+    has a phase, with no distance to compute.
+  * PACKET, sixteen amplitudes by 256 phases. A ripple is a LOCAL packet --
+    two cycles that decay -- not an endless sine, so the ring is visible as
+    a ring. Spreading loss needs no separate table: the packet rides at
+    radius ~ct and the slot's own amplitude decay stands in for it.
+  * LEVEL, the sum of four packets (0..252, 128 at rest) to a dot size, so
+    the frame needs no multiply and no clamping.
 
     python3 tools/genhalf.py        # writes src/half.bin + half_preview.png
 
-Cell is CW x CH pixels, CW/8 bytes wide, and the dots are drawn as ellipses
-because the SM124's pixels are taller than they are wide -- a circle in
-pixels reads as a squashed dot on the glass.
-
 File layout:
-    0..                 NRAD sprites, CH rows of CW/8 bytes, size 0 first
-    +NRAD*CH*CW/8       three 256-byte wave tables, values 0..85
+    0                   NRAD sprites, CH rows of CW/8 bytes, size 0 first
+    SPRITES             LEVEL, 256 bytes
+    PACKETS             16 x 256 bytes
+    DISTS               NANCH x NCELL bytes, minus distance
 """
 import math, os, struct, zlib
 
@@ -25,12 +31,21 @@ W, H     = 640, 400
 CW, CH   = 32, 25          # 20 x 16 cells
 NCOL     = W // CW
 NROW     = H // CH
-NRAD     = 13              # dot sizes, 0 (empty) .. 12 (nearly touching)
+NCELL    = NCOL * NROW
+NRAD     = 13
 ASPECT   = 1.25            # pixel height / width on an SM124
+NANCH    = 8
+NAMP     = 16
+PKLEN    = 88              # phases the packet lasts; 0 is the wavefront
+REST     = 32              # a slot's neutral contribution; four make 128
+SWING    = 31              # how far a full-amplitude packet swings
 OUT      = "src/half.bin"
 PREVIEW  = "half_preview.png"
 
-assert W % CW == 0 and H % CH == 0
+# Anchors on the cell grid, laid out as the pads are: two rows of four.
+ANCHORS = [(2, 4), (7, 4), (12, 4), (17, 4),
+           (2, 11), (7, 11), (12, 11), (17, 11)]
+assert len(ANCHORS) == NANCH
 
 def sprite(i):
     """one cell: a filled ellipse of size i, and black everywhere else"""
@@ -51,41 +66,61 @@ for i in range(NRAD):
     blob += sprite(i)
 SPRITES = len(blob)
 
-# Three waves summed make the field. Values are kept to 0..85 so that three
-# of them cannot overflow a byte, which lets the ST add them without care.
-for k, (amp, bias) in enumerate(((42, 42), (42, 42), (42, 42))):
-    t = bytearray()
-    for n in range(256):
-        t.append(int(bias + amp*math.sin(n*2*math.pi/256)))
-    blob += t
-
-# Three waves sum to 0..255, and this turns that into a dot size without a
-# multiply in the frame.
-LEVELS = len(blob)
+# Four slots at rest sum to 4*REST = 128, which has to come out as the
+# smallest visible dot. Above that the dots swell, below it they shrink away
+# -- so interference reads in both directions.
+LEVEL = len(blob)
 for v in range(256):
-    blob.append((v * NRAD) // 256)
+    # steep, so that ONE ripple already swells its crest to size 8 and
+    # hollows its trough to nothing; and resting at 2, not 1, so the dots
+    # are visible when nothing is playing
+    i = int(round((v - 4*REST) / 4.0)) + 2
+    blob.append(max(0, min(NRAD-1, i)))
+
+PACKETS = len(blob)
+for amp in range(NAMP):
+    a = SWING * amp / (NAMP-1)
+    for s in range(256):
+        if s >= PKLEN:                  # the ripple has gone by
+            blob.append(REST)
+            continue
+        env = 1.0 - s/PKLEN             # and fades as it travels
+        v = REST + a * env * math.sin(s * 2*math.pi * 2 / PKLEN)
+        blob.append(max(1, min(2*REST-1, int(round(v)))))
+
+DISTS = len(blob)
+for ax, ay in ANCHORS:
+    for cy in range(NROW):
+        for cx in range(NCOL):
+            # cells are wider than tall on the glass, so the distance is
+            # measured in what the eye sees, not in cells
+            dx = (cx - ax) * 1.0
+            dy = (cy - ay) * (CH * ASPECT / CW)
+            d = int(round(math.hypot(dx, dy) * 8))
+            blob.append((-d) & 0xff)
 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 open(OUT, 'wb').write(bytes(blob))
-print(f"{OUT}: {len(blob)} bytes ({SPRITES} sprites + 768 wave + 256 level)")
-print(f"  {NCOL} x {NROW} cells of {CW}x{CH}, {NRAD} sizes")
-print(f"  a changed cell costs {CH}*28 = {CH*28} cycles, "
-      f"all of them {NCOL*NROW*CH*28/1000:.0f}k = "
-      f"{NCOL*NROW*CH*28/112000:.1f} frames")
-print(f"  src/shows/halftone.s: NCOL {NCOL} NROW {NROW} NRAD {NRAD} "
-      f"CW {CW} CH {CH} WAVES {SPRITES} LEVELS {LEVELS}")
+print(f"{OUT}: {len(blob)} bytes")
+print(f"  {NCOL} x {NROW} cells of {CW}x{CH}, {NRAD} sizes, {NANCH} anchors")
+print(f"  src/shows/halftone.s: SPRITES {SPRITES} LEVEL {LEVEL} "
+      f"PACKETS {PACKETS} DISTS {DISTS}")
+print(f"  a cell costs 4 slots x 38 = 152 cycles, a redraw {CH*28}")
 
 # ---------------------------------------------------------------- preview
-wave = [blob[SPRITES + k*256 + n] for k in range(3) for n in range(256)]
-def wv(k, n):
-    return blob[SPRITES + k*256 + (n & 255)]
-
+# Two anchors ringing at different ages, which is what interference looks
+# like: the rings cross and the dots there swell or vanish.
+active = [(1, 15, 40), (6, 11, 96)]    # anchor, amplitude, wavefront
 fb = bytearray(W*H//8)
-t1, t2, t3 = 30, 90, 170
 for cy in range(NROW):
     for cx in range(NCOL):
-        v = wv(0, cx*37 + t1) + wv(1, cy*43 + t2) + wv(2, (cx+cy)*29 + t3)
-        i = blob[LEVELS + (v & 255)]
+        cell = cy*NCOL + cx
+        v = 0
+        for an, amp, t in active:
+            nd = blob[DISTS + an*NCELL + cell]
+            v += blob[PACKETS + amp*256 + ((nd + t) & 0xff)]
+        v += REST * (4 - len(active))
+        i = blob[LEVEL + min(255, v)]
         sp = blob[i*CH*(CW//8):(i+1)*CH*(CW//8)]
         for y in range(CH):
             for b in range(CW//8):

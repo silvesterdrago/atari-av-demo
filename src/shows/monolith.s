@@ -187,7 +187,11 @@ draw_mono:
     and.l   #$ffff,d2
     mulu    #MO_STRIDE,d2
     add.l   #MO_POSES,d2
+    ifd SHARED
+    move.l  sd_base,a6       ; the set's shared buffer, filled on entry
+    else
     lea     big_data,a6
+    endif
     lea     0(a6,d2.l),a5
 
     moveq   #0,d4
@@ -313,7 +317,11 @@ mo_fill_poly:
     ; this level's four fills, doubled so they can go out as words
     move.w  mo_tlevel,d4
     lsl.w   #2,d4
+    ifd SHARED
+    move.l  sd_base,a1       ; the set's shared buffer, filled on entry
+    else
     lea     big_data,a1
+    endif
     adda.w  d4,a1
     lea     mo_pat4,a2
     moveq   #3,d5
@@ -587,8 +595,10 @@ mo_adv_chain:
 ;----------------------------------------------------------------------
     section data
     even
+    ifnd SHARED
 big_data:
     incbin  "src/big.bin"
+    endif
 
 ;----------------------------------------------------------------------
     section bss

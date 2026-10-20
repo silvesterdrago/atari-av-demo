@@ -169,8 +169,8 @@ so_init:
 
     clr.w   turn
     clr.w   free_ctr
-    clr.w   shear_ctr
-    clr.w   shear_cool
+    clr.w   so_shear_ctr
+    clr.w   so_shear_cool
     rts
 
 ;----------------------------------------------------------------------
@@ -262,23 +262,23 @@ BENCHREP    equ 8               ; so draw the thing several times a pass to
     bne.s   .scan
 .drawn:
 
-    tst.w   shear_cool
+    tst.w   so_shear_cool
     beq.s   .cooled
-    subq.w  #1,shear_cool
+    subq.w  #1,so_shear_cool
 .cooled:
-    tst.w   shear_ctr
+    tst.w   so_shear_ctr
     bne.s   .armed
-    tst.w   shear_cool
+    tst.w   so_shear_cool
     bne.s   .armed
     cmp.w   #SHEAR_AT,level
     bcs.s   .armed
-    move.w  #6,shear_ctr
-    move.w  #45,shear_cool
+    move.w  #6,so_shear_ctr
+    move.w  #45,so_shear_cool
 .armed:
     move.l  buf_base,d0
-    tst.w   shear_ctr
+    tst.w   so_shear_ctr
     beq.s   .setbase
-    subq.w  #1,shear_ctr
+    subq.w  #1,so_shear_ctr
     bsr     next_rng
     move.w  d3,d1
     and.w   #3,d1
@@ -369,7 +369,11 @@ draw_solid:
 .blanked:
 
     ; --- the pose
+    ifd SHARED
+    move.l  sd_base,a6       ; the set's shared buffer, filled on entry
+    else
     lea     solid_data,a6
+    endif
     bsr     cell_pose
     move.w  d0,d1
     and.w   #$ff,d1             ; angle
@@ -508,7 +512,11 @@ fill_poly:
     ; this level's four fills, doubled so they can go out as words
     move.w  tlevel,d4
     lsl.w   #2,d4
+    ifd SHARED
+    move.l  sd_base,a1       ; the set's shared buffer, filled on entry
+    else
     lea     solid_data,a1
+    endif
     adda.w  d4,a1
     lea     pat4,a2
     moveq   #3,d5
@@ -798,8 +806,10 @@ lmask:  dc.b $ff,$7f,$3f,$1f,$0f,$07,$03,$01
 rmask:  dc.b $80,$c0,$e0,$f0,$f8,$fc,$fe,$ff
     even
 ; 32 bytes of dither table, then the poses
+    ifnd SHARED
 solid_data:
     incbin  "src/solids.bin"
+    endif
 
     section bss
     even
@@ -822,8 +832,8 @@ cell_wb:        ds.w 1
 cell_rows:      ds.w 1
 turn:           ds.w 1
 free_ctr:       ds.w 1
-shear_ctr:      ds.w 1
-shear_cool:     ds.w 1
+so_shear_ctr:      ds.w 1
+so_shear_cool:     ds.w 1
 jitter:         ds.w 1
 rowacc:         ds.w 1
 segcnt:         ds.w 1

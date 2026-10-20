@@ -66,11 +66,19 @@ src/vectors.bin: tools/genvectors.py
 
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
-# HYPER reads its frames off the card at start-up rather than carrying them,
-# which is the difference between 375 KB of program and 5 KB. The .DAT has to
-# sit beside the .TOS wherever it runs.
+# Baked tables that travel beside the binary instead of inside it. Four
+# scenes hold 855 KB between them, which no megabyte carries at once, so a
+# set shares one buffer and reads the entered scene's file into it. Every
+# .DAT has to sit beside the .TOS wherever it runs.
 dist/HYPER.DAT: src/hyper.bin | dist
 	cp $< $@
+dist/CUBES.DAT: src/cubes.bin | dist
+	cp $< $@
+dist/SOLIDS.DAT: src/solids.bin | dist
+	cp $< $@
+dist/BIG.DAT: src/big.bin | dist
+	cp $< $@
+DATS := dist/HYPER.DAT dist/CUBES.DAT dist/SOLIDS.DAT dist/BIG.DAT
 dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc
 dist/SOLIDS.TOS:   src/solids.bin
@@ -88,10 +96,15 @@ $(MULTIB): src/multib.s $(SHOW_SRCS) $(SHOW_DEPS) src/cubes.bin src/half.bin \
            dist/HYPER.DAT | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ src/multib.s
 
-multi: $(MULTI) $(MULTIB)
-	@ls -la $(MULTI) $(MULTIB) dist/HYPER.DAT
+MULTIC := dist/MULTIC.TOS
+$(MULTIC): src/multic.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
+           $(DATS) | $(VASM) dist
+	$(VASM) -Ftos -quiet -o $@ src/multic.s
 
-all: $(TARGET) $(SHOW_BINS) $(MULTI) $(MULTIB)
+multi: $(MULTI) $(MULTIB) $(MULTIC)
+	@ls -la $(MULTI) $(MULTIB) $(MULTIC) $(DATS)
+
+all: $(TARGET) $(SHOW_BINS) $(MULTI) $(MULTIB) $(MULTIC)
 
 shows: $(SHOW_BINS)
 	@ls -la $(SHOW_BINS)

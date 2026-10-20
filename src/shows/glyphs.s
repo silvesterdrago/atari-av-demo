@@ -32,7 +32,10 @@ WRECK_AT    equ 150             ; strength above which glyphs get chewed.
                                 ; arrive far more often than lines are printed.
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+gl_init:
     ; --- the ST's own 8x16 font, via Line-A
     dc.w    $a000               ; a1 = array of 3 font header pointers
     move.l  a1,a3
@@ -63,7 +66,10 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+gl_frame:
     ; scroll speed follows how hard the set is being played; at rest it
     ; still creeps, because a frozen wall of text reads as a crash
     move.w  level,d0
@@ -125,7 +131,7 @@ show_frame:
     ; next line of the litany
     move.w  cur_line,d0
     addq.w  #1,d0
-    cmp.w   #NLINES,d0
+    cmp.w   #GL_LINES,d0
     bcs.s   .lineok
     moveq   #0,d0
 .lineok:
@@ -212,10 +218,13 @@ print_line:
 ;----------------------------------------------------------------------
 ; d0 = strength 0..255, d1 = pad index * 2
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_note_on:
+    endif
+gl_note_on:
     movem.l d0-d1,-(sp)
     lsr.w   #1,d1
-    cmp.w   #NLINES,d1
+    cmp.w   #GL_LINES,d1
     bcs.s   .ok
     moveq   #0,d1
 .ok:
@@ -235,7 +244,7 @@ show_note_on:
 ; One line per pad. Edit freely -- this is the copy for the show.
 lines:
     dc.l    l0,l1,l2,l3,l4,l5,l6,l7
-NLINES      equ 8
+GL_LINES      equ 8
 l0: dc.b "NOISE",0
 l1: dc.b "SIGNAL LOST",0
 l2: dc.b "1040 STF",0

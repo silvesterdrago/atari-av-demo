@@ -37,9 +37,9 @@ RANGE_PAGES equ 1
 
 NFRAMES     equ 12              ; must match tools/genhyper.py
 FRAMESZ     equ 32000
-SPEED_BASE  equ 128             ; one frame every two VBLs: 0.34s a doubling
-SPEED_DECAY equ 12
-SPEED_HIT   equ 6               ; times velocity
+HY_CRUISE  equ 128             ; one frame every two VBLs: 0.34s a doubling
+HY_SLOW equ 12
+HY_KICK   equ 6               ; times velocity
     ifnd FLASH_AT
 FLASH_AT    equ 200
     endif
@@ -52,9 +52,14 @@ FLASH_LEN   equ 3
 show_init:
     endif
 hy_init:
+    ifd SHARED
+    move.l  sd_base,frame0      ; the set loaded the frames already
+    move.w  #1,hy_ready
+    else
     bsr     hy_load
+    endif
     clr.w   hphase
-    move.w  #SPEED_BASE,hspeed
+    move.w  #HY_CRUISE,hspeed
     clr.w   hy_flash
     move.l  frame0,d0           ; show the first one immediately
     bsr     set_screen_base
@@ -66,6 +71,7 @@ hy_init:
 ; on every entry -- hy_dead then leaves the scene blank, which is wrong but
 ; quiet, and the other scenes still work.
 ;----------------------------------------------------------------------
+    ifnd SHARED
 hy_load:
     movem.l d0-d2/a0-a1,-(sp)
     tst.w   hy_ready
@@ -110,6 +116,7 @@ hy_load:
 .out:
     movem.l (sp)+,d0-d2/a0-a1
     rts
+    endif
 
 ;----------------------------------------------------------------------
     ifnd SCENES
@@ -117,12 +124,12 @@ show_frame:
     endif
 hy_frame:
     move.w  hspeed,d0           ; the jump slows back to its cruise
-    cmp.w   #SPEED_BASE+SPEED_DECAY,d0
+    cmp.w   #HY_CRUISE+HY_SLOW,d0
     bcs.s   .sk
-    sub.w   #SPEED_DECAY,d0
+    sub.w   #HY_SLOW,d0
     bra.s   .sp
 .sk:
-    move.w  #SPEED_BASE,d0
+    move.w  #HY_CRUISE,d0
 .sp:
     move.w  d0,hspeed
     add.w   d0,hphase
@@ -155,8 +162,8 @@ show_note_on:
 hy_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d2,-(sp)
     move.w  d0,d2
-    mulu    #SPEED_HIT,d2
-    add.w   #SPEED_BASE,d2
+    mulu    #HY_KICK,d2
+    add.w   #HY_CRUISE,d2
     cmp.w   #$1800,d2
     bcs.s   .ok
     move.w  #$1800,d2
@@ -182,7 +189,9 @@ hy_name:
 ;----------------------------------------------------------------------
     section bss
     even
+    ifnd SHARED
 frames:         ds.b NFRAMES*FRAMESZ+256
+    endif
 frame0:         ds.l 1
 hphase:         ds.w 1
 hspeed:         ds.w 1

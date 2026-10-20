@@ -133,7 +133,11 @@ cu_frame:
     mulu    #CUBE_ANGLES,d5
     add.w   d6,d5
     mulu    #CUBE_SPRITE,d5
+    ifd SHARED
+    move.l  sd_base,a1       ; the set's shared buffer, filled on entry
+    else
     lea     cube_data,a1
+    endif
     add.l   d5,a1
 
     move.w  d7,d6
@@ -259,8 +263,10 @@ cu_note_on:
 ;----------------------------------------------------------------------
     section data
     even
+    ifnd SHARED
 cube_data:
     incbin  "src/cubes.bin"
+    endif
 
 ;----------------------------------------------------------------------
     section bss

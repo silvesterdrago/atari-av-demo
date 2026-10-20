@@ -18,8 +18,12 @@
 ;  Unlike VECTORS, a cell is blanked and completely redrawn inside one
 ;  frame, so nothing is ever seen half-built.
 ;======================================================================
+    ifnd SCENES
 POOL_SIZE   equ 1024
+    endif
+    ifnd SCENES
 RANGE_PAGES equ 8
+    endif
 
     include "src/core/head.s"
 
@@ -29,7 +33,9 @@ SOL_STRIDE  equ 96
 SOL_POSES   equ 32              ; poses start after the dither table
 CLEAR_ROWS  equ 160             ; of the cell's 200; a solid never reaches
                                 ; further than 70 rows from the centre
+    ifnd ROWB
 ROWB        equ 80              ; bytes in a screen row. Mono only, which this
+    endif
                                 ; whole show is: it lets the span write the
                                 ; row below with a displacement instead of a
                                 ; second pass over the cell.
@@ -63,7 +69,10 @@ FIX         equ 7               ; fixed-point shift for edge slopes. 8 would
                                 ; 254<<8 does not fit a signed word quotient.
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+so_init:
     move.w  row_bytes,d5
     lsl.w   #1,d5               ; cell width in pixels
     move.w  scr_rows,d6
@@ -165,7 +174,10 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+so_frame:
     ifd BENCHSOLID
     ifnd BENCHREP               ; wait_vbl rounds a pass up to whole frames,
 BENCHREP    equ 8               ; so draw the thing several times a pass to
@@ -762,7 +774,10 @@ adv_chain:
 ;----------------------------------------------------------------------
 ; d0 = strength 0..255, d1 = pad index * 2
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_note_on:
+    endif
+so_note_on:
     movem.l d0-d1/a0,-(sp)
     lea     cell_level,a0
     move.w  d0,(a0,d1.w)

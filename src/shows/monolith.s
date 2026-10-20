@@ -21,8 +21,12 @@
 ;    every pose the generator will emit (it asserts it). SOLIDS worked its
 ;    blanking box out on the machine and sprang a leak I never found.
 ;======================================================================
+    ifnd SCENES
 POOL_SIZE   equ 1024            ; no noise in this one
+    endif
+    ifnd SCENES
 RANGE_PAGES equ 131             ; 256 pages: two whole screens, 32768 apart,
+    endif
                                 ; both on a 256-byte boundary so the base
                                 ; register can flip between them
     include "src/core/head.s"
@@ -33,18 +37,27 @@ MO_STRIDE   equ 128
 MO_POSES    equ 32              ; poses start after the dither table
 CX          equ 320             ; screen centre. A multiple of 8, so the
 CY          equ 200             ; blanking window needs no rounding
+    ifnd ROWB
 ROWB        equ 80              ; bytes in a screen row; mono only
+    endif
+    ifnd YSTEP
 YSTEP       equ 2               ; draw every second row, double it in the span
+    endif
+    ifnd BACK
 BACK        equ 32768           ; the other screen
+    endif
 BLANK_X     equ 16              ; the window that holds every pose:
 BLANK_W     equ 48              ; bytes 16..63, x 128..511
 MO_DECAY    equ 2
 SPIN_REST   equ 1               ; angle steps a redraw when quiet
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
-    lea     lmaskt,a0
-    lea     rmaskt,a1
+    endif
+mo_init:
+    lea     mo_lmaskt,a0
+    lea     mo_rmaskt,a1
     moveq   #0,d0
 .mk:
     move.w  #$00ff,d1
@@ -60,8 +73,8 @@ show_init:
     cmp.w   #8,d0
     bcs.s   .mk
 
-    move.w  #CX,poly_cx
-    move.w  #CY,poly_cy
+    move.w  #CX,mo_poly_cx
+    move.w  #CY,mo_poly_cy
 
     move.l  buf_base,a0         ; both screens start blank
     move.l  a0,a1
@@ -75,7 +88,7 @@ show_init:
     endif
     clr.w   angle
     clr.w   mo_level
-    move.w  #1,back_side        ; screen A is the one being shown, so the
+    move.w  #1,mo_back_side        ; screen A is the one being shown, so the
     move.w  #-1,last_pose       ; first redraw goes into B
     lea     blank_y,a0
     clr.l   (a0)                ; neither screen has anything on it
@@ -83,7 +96,10 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+mo_frame:
     move.w  mo_level,d0
     sub.w   #MO_DECAY,d0
     bpl.s   .lv
@@ -124,7 +140,10 @@ show_frame:
     rts
 
 ;----------------------------------------------------------------------
-show_note_on:                   ; d0 = strength, d1 = pad*2
+    ifnd SCENES
+show_note_on:
+    endif
+mo_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d1,-(sp)         ; the caller's parser still needs these
     move.w  d0,mo_level
     ifnd MOSHAPE
@@ -146,7 +165,7 @@ draw_mono:
     addq.w  #1,show_ctr
     endif
 
-    move.w  back_side,d6        ; which screen we draw into
+    move.w  mo_back_side,d6        ; which screen we draw into
     move.l  buf_base,a1
     tst.w   d6
     beq.s   .front
@@ -185,15 +204,15 @@ draw_mono:
 
     move.l  a5,a4               ; a4 = vertex words
     lsl.w   #2,d4
-    lea     0(a5,d4.w),a3       ; a3 = face data, walked by fill_poly
+    lea     0(a5,d4.w),a3       ; a3 = face data, walked by mo_fill_poly
 
     subq.w  #1,d3
 .face:
-    bsr     fill_poly
+    bsr     mo_fill_poly
     dbra    d3,.face
 
     ; --- show it
-    eori.w  #1,back_side
+    eori.w  #1,mo_back_side
     move.l  draw_base,d0
     bsr     set_screen_base
 .out:
@@ -244,31 +263,31 @@ blank_rows:
 ; a3 = face data: level.b, nA.b, nB.b, then nA and nB vertex indices.
 ; a4 = the pose's vertex array, x.w then y.w. a3 is left past this face.
 ;----------------------------------------------------------------------
-fill_poly:
+mo_fill_poly:
     movem.l d0-d7/a0-a2/a5,-(sp)    ; a3 deliberately not saved
     moveq   #0,d0
     move.b  (a3)+,d0
-    move.w  d0,tlevel
+    move.w  d0,mo_tlevel
     moveq   #0,d1
     move.b  (a3)+,d1            ; nA
     moveq   #0,d2
     move.b  (a3)+,d2            ; nB
-    move.l  a3,chA
-    move.w  d1,chA+12
+    move.l  a3,mo_chA
+    move.w  d1,mo_chA+12
     move.l  a3,d3
     add.l   d1,d3
-    move.l  d3,chB
-    move.w  d2,chB+12
+    move.l  d3,mo_chB
+    move.w  d2,mo_chB+12
     add.l   d2,d3
     move.l  d3,a3               ; the caller goes on from here
 
     ; top and bottom row, from the ends of chain A
-    move.l  chA,a0
+    move.l  mo_chA,a0
     moveq   #0,d4
     move.b  (a0),d4
     lsl.w   #2,d4               ; four bytes a vertex now
     move.w  2(a4,d4.w),d5
-    add.w   poly_cy,d5
+    add.w   mo_poly_cy,d5
     ifne YSTEP-1
     addq.w  #1,d5               ; every face on the same doubling grid, and
     and.w   #$fffe,d5           ; rounded UP: rounding down puts the first
@@ -277,26 +296,26 @@ fill_poly:
                                 ; extrapolate backwards -- which on a
                                 ; near-horizontal edge lands hundreds of
                                 ; pixels off the figure
-    move.w  d5,t_y
+    move.w  d5,mo_t_y
     subq.w  #1,d5
-    move.w  d5,chA+14           ; forces both chains to load an edge on
-    move.w  d5,chB+14           ; the first row
-    move.w  chA+12,d4
+    move.w  d5,mo_chA+14           ; forces both chains to load an edge on
+    move.w  d5,mo_chB+14           ; the first row
+    move.w  mo_chA+12,d4
     subq.w  #1,d4
     adda.w  d4,a0
     moveq   #0,d4
     move.b  (a0),d4
     lsl.w   #2,d4
     move.w  2(a4,d4.w),d5
-    add.w   poly_cy,d5
-    move.w  d5,poly_ymax
+    add.w   mo_poly_cy,d5
+    move.w  d5,mo_poly_ymax
 
     ; this level's four fills, doubled so they can go out as words
-    move.w  tlevel,d4
+    move.w  mo_tlevel,d4
     lsl.w   #2,d4
     lea     big_data,a1
     adda.w  d4,a1
-    lea     pat4,a2
+    lea     mo_pat4,a2
     moveq   #3,d5
 .mkpat:
     moveq   #0,d6
@@ -306,9 +325,9 @@ fill_poly:
     or.w    d7,d6
     move.w  d6,(a2)+
     dbra    d5,.mkpat
-    lea     pat4,a2
+    lea     mo_pat4,a2
 
-    move.w  t_y,d4
+    move.w  mo_t_y,d4
     and.l   #$ffff,d4
     mulu    #ROWB,d4
     move.l  draw_base,a0
@@ -323,43 +342,43 @@ fill_poly:
     ; Inside a segment nothing can change, so the row loop runs with no
     ; compares at all.
 .seg:
-    move.w  t_y,d4
-    cmp.w   poly_ymax,d4
+    move.w  mo_t_y,d4
+    cmp.w   mo_poly_ymax,d4
     bhi     .out
-    cmp.w   chA+14,d4
+    cmp.w   mo_chA+14,d4
     bls.s   .aok
-    lea     chA,a1
-    bsr     adv_chain
-    move.l  chA+4,d0
-    move.l  chA+8,d2
+    lea     mo_chA,a1
+    bsr     mo_adv_chain
+    move.l  mo_chA+4,d0
+    move.l  mo_chA+8,d2
     ifne YSTEP-1
     add.l   d2,d2
     endif
 .aok:
-    cmp.w   chB+14,d4
+    cmp.w   mo_chB+14,d4
     bls.s   .bok
-    lea     chB,a1
-    bsr     adv_chain
-    move.l  chB+4,d1
-    move.l  chB+8,d3
+    lea     mo_chB,a1
+    bsr     mo_adv_chain
+    move.l  mo_chB+4,d1
+    move.l  mo_chB+8,d3
     ifne YSTEP-1
     add.l   d3,d3
     endif
 .bok:
-    move.w  chA+14,d5
-    cmp.w   chB+14,d5
+    move.w  mo_chA+14,d5
+    cmp.w   mo_chB+14,d5
     bls.s   .m1
-    move.w  chB+14,d5
+    move.w  mo_chB+14,d5
 .m1:
-    cmp.w   poly_ymax,d5
+    cmp.w   mo_poly_ymax,d5
     bls.s   .m2
-    move.w  poly_ymax,d5
+    move.w  mo_poly_ymax,d5
 .m2:
     sub.w   d4,d5
     ifne YSTEP-1
     lsr.w   #1,d5
     endif
-    move.w  d5,segcnt
+    move.w  d5,mo_segcnt
 
 .row:
     ; --- span ends, ordered
@@ -380,13 +399,13 @@ fill_poly:
     sub.w   d4,d5               ; last byte - first byte
 
     and.w   #7,d6
-    move.b  8(a2,d6.w),d4       ; left mask, from the table beside pat4
+    move.b  8(a2,d6.w),d4       ; left mask, from the table beside mo_pat4
     and.w   #7,d7
     move.b  16(a2,d7.w),d7      ; right mask
 
-    move.w  t_y,d6
+    move.w  mo_t_y,d6
     if YSTEP=2
-    and.w   #6,d6               ; (t_y/2) & 3, in words, in one step
+    and.w   #6,d6               ; (mo_t_y/2) & 3, in words, in one step
     else
     and.w   #3,d6
     add.w   d6,d6
@@ -453,9 +472,9 @@ fill_poly:
 .next:
     add.l   d2,d0
     add.l   d3,d1
-    addq.w  #YSTEP,t_y
+    addq.w  #YSTEP,mo_t_y
     adda.w  a5,a0
-    subq.w  #1,segcnt
+    subq.w  #1,mo_segcnt
     bpl     .row
     bra     .seg
 .out:
@@ -470,7 +489,7 @@ fill_poly:
 ; pre-shifted by 7 and divided once, which costs up to dy/128 pixels of
 ; drift -- a pixel on a 140-row figure, three on a 350-row one.
 ;----------------------------------------------------------------------
-adv_chain:
+mo_adv_chain:
     movem.l d0-d7/a0,-(sp)
 .again:
     move.w  12(a1),d0
@@ -492,9 +511,9 @@ adv_chain:
     bra     .again
 .good:
     move.w  0(a4,d1.w),d5
-    add.w   poly_cx,d5
+    add.w   mo_poly_cx,d5
     move.w  0(a4,d2.w),d6
-    add.w   poly_cx,d6
+    add.w   mo_poly_cx,d6
     move.w  d5,d7
     ext.l   d7
     swap    d7                  ; x starts exactly on the vertex, 16.16
@@ -531,8 +550,8 @@ adv_chain:
     ; edge a slope is hundreds of pixels, which threw the span clean off
     ; the figure and left pixels outside the blanking window.
     move.w  d3,d0
-    add.w   poly_cy,d0          ; this vertex's screen row
-    move.w  t_y,d1
+    add.w   mo_poly_cy,d0          ; this vertex's screen row
+    move.w  mo_t_y,d1
     sub.w   d0,d1
     beq.s   .onrow
     bmi.s   .back
@@ -552,7 +571,7 @@ adv_chain:
     move.l  d0,4(a1)
 .onrow:
     move.w  d4,d7
-    add.w   poly_cy,d7
+    add.w   mo_poly_cy,d7
     move.w  d7,14(a1)
     addq.l  #1,0(a1)
     subq.w  #1,12(a1)
@@ -574,23 +593,23 @@ big_data:
 ;----------------------------------------------------------------------
     section bss
     even
-chA:            ds.b 16         ; ptr.l, x.l, slope.l, left.w, yend.w
-chB:            ds.b 16
+mo_chA:            ds.b 16         ; ptr.l, x.l, slope.l, left.w, yend.w
+mo_chB:            ds.b 16
 draw_base:      ds.l 1
 blank_y:        ds.w 4          ; per screen: first row, rows
 shape:          ds.w 1
 angle:          ds.w 1
 mo_level:       ds.w 1
 last_pose:      ds.w 1
-back_side:      ds.w 1
-tlevel:         ds.w 1
-poly_cx:        ds.w 1
-poly_cy:        ds.w 1
-poly_ymax:      ds.w 1
-t_y:            ds.w 1
-segcnt:         ds.w 1
+mo_back_side:      ds.w 1
+mo_tlevel:         ds.w 1
+mo_poly_cx:        ds.w 1
+mo_poly_cy:        ds.w 1
+mo_poly_ymax:      ds.w 1
+mo_t_y:            ds.w 1
+mo_segcnt:         ds.w 1
     even
-pat4:           ds.w 4          ; a2 points here; the mask tables are at
-lmaskt:         ds.b 8          ; +8 and +16 so one register reaches all three
-rmaskt:         ds.b 8
+mo_pat4:           ds.w 4          ; a2 points here; the mask tables are at
+mo_lmaskt:         ds.b 8          ; +8 and +16 so one register reaches all three
+mo_rmaskt:         ds.b 8
     even

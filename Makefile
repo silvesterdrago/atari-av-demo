@@ -72,7 +72,16 @@ dist/SOLIDS.TOS:   src/solids.bin
 dist/SHAPES.TOS:   src/shapes.bin
 dist/VECTORS.TOS:  src/vectors.bin
 
-all: $(TARGET) $(SHOW_BINS)
+# Every scene in one binary, switched on the number keys.
+MULTI := dist/MULTI.TOS
+$(MULTI): src/multi.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
+          src/solids.bin src/big.bin | $(VASM) dist
+	$(VASM) -Ftos -quiet -o $@ src/multi.s
+
+multi: $(MULTI)
+	@ls -la $(MULTI)
+
+all: $(TARGET) $(SHOW_BINS) $(MULTI)
 
 shows: $(SHOW_BINS)
 	@ls -la $(SHOW_BINS)
@@ -168,4 +177,4 @@ clean:
 distclean: clean
 	rm -rf tools/vasm tools/vlink tools/*.tar.gz tools/hatari-pm-build
 
-.PHONY: all shows tools fifo run run-live run-midi run-pm run-show run-show-live midi-list diag clean distclean
+.PHONY: all multi shows tools fifo run run-live run-midi run-pm run-show run-show-live midi-list diag clean distclean

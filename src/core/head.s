@@ -13,11 +13,17 @@
 ;  buffer, the timers, the envelope, the diagnostics -- lives here
 ;  Atari ST (68000 @ 8MHz, plain 1040 STF, SM124 mono 640x400 @ 71Hz)
 ;
-;  Keys:  1-4 pick a scene   0 = auto-cycle   ESC = quit
-;         any other key = manual hit (VJing without MIDI)
+;  Keys:  ESC = quit, any other key = a manual hit, so a show can be
+;         driven with no MIDI plugged in. A multi-scene build defines
+;         SCENES and takes 1-9 for itself.
 ;
 ;  Build with -DDIAG=1 for the frame-budget overrun bar.
 ;======================================================================
+
+    ifd CORE_HEAD_DONE          ; a multi-scene build includes this once and
+    section text                ; each scene file's own include lands here
+    else
+CORE_HEAD_DONE  equ 1
 
     ifnd DIAG
 DIAG        equ 0
@@ -264,3 +270,5 @@ exit:
 
     clr.w   -(sp)
     trap    #1
+
+    endif

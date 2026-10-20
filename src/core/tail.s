@@ -1,3 +1,5 @@
+    ifnd CORE_TAIL_DONE         ; included once however many scenes ask
+CORE_TAIL_DONE  equ 1
 
 ;----------------------------------------------------------------------
 ; Read the MIDI ACIA ourselves instead of going through the BIOS.
@@ -488,6 +490,19 @@ poll_keyboard:
 
     cmp.b   #27,d0
     beq.s   .quit
+    ifd SCENES
+    move.w  d0,d1               ; 1..9 pick a scene; a standalone show has
+    and.w   #$ff,d1             ; no scene table and falls through to a hit
+    cmp.w   #'1',d1
+    bcs.s   .hit
+    cmp.w   #'9',d1
+    bhi.s   .hit
+    sub.w   #'1',d1
+    move.w  d1,d0
+    bsr     scene_select
+    rts
+.hit:
+    endif
     ; any key is a full-strength hit on one of the eight pads, so the show
     ; can be driven with no MIDI plugged in at all
     move.w  d0,d1
@@ -577,3 +592,5 @@ old_pal:        ds.w 16
 noise_pool:     ds.b POOL_SIZE
     even
 screen_mem:     ds.b BUF_TOTAL+256
+
+    endif

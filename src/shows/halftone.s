@@ -33,8 +33,12 @@
 ;  dot size through a third table, so there is no multiply and no
 ;  clamping in the frame.
 ;======================================================================
+    ifnd SCENES
 POOL_SIZE   equ 1024
+    endif
+    ifnd SCENES
 RANGE_PAGES equ 1
+    endif
     include "src/core/head.s"
 
 NCOL        equ 20              ; all of these must match tools/genhalf.py
@@ -48,7 +52,9 @@ LEVEL       equ 1300
 PACKETS     equ 1556
 DISTS       equ 5652
 REST        equ 32              ; a slot's neutral contribution
+    ifnd ROWB
 ROWB        equ 80
+    endif
 CELLSZ      equ CH*CW
 
 NSLOT       equ 2               ; ripples at once. Two interfere plainly and
@@ -63,12 +69,19 @@ VISITS      equ 112             ; and cells LOOKED AT, which turned out to
                                 ; left a third of the frames overrunning,
                                 ; because the field costs as much to work
                                 ; out as the dots cost to draw
+    ifnd FLASH_AT
 FLASH_AT    equ 200
+    endif
+    ifnd FLASH_LEN
 FLASH_LEN   equ 3
+    endif
 FREE_EVERY  equ 30              ; frames between ripples when nothing plays
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+ht_init:
     lea     sprite_ptr,a0       ; one pointer a dot size, so the frame
     lea     half_data+SPRITES,a1
     moveq   #NRAD-1,d0
@@ -105,19 +118,22 @@ show_init:
     clr.w   scan_cx
     clr.w   scan_cy
     clr.w   hflash
-    clr.w   free_ctr
+    clr.w   ht_free_ctr
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+ht_frame:
     ; --- with nothing playing, ring an anchor now and then: a field of
     ; identical resting dots is not worth looking at
     cmp.w   #150,idle_ticks
     bcs.s   .played
-    addq.w  #1,free_ctr
-    cmp.w   #FREE_EVERY,free_ctr
+    addq.w  #1,ht_free_ctr
+    cmp.w   #FREE_EVERY,ht_free_ctr
     bcs.s   .played
-    clr.w   free_ctr
+    clr.w   ht_free_ctr
     bsr     next_rng            ; clobbers d3 and d4, hence nothing of ours
     move.w  d3,d1
     and.w   #7,d1
@@ -243,7 +259,10 @@ blit_cell:
     rts
 
 ;----------------------------------------------------------------------
-show_note_on:                   ; d0 = strength, d1 = pad*2
+    ifnd SCENES
+show_note_on:
+    endif
+ht_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d3/a0-a1,-(sp)
 
     lea     slot,a0             ; the quieter slot gives way
@@ -310,5 +329,5 @@ scan_cy:        ds.w 1
 budget:         ds.w 1
 scanleft:       ds.w 1
 hflash:         ds.w 1
-free_ctr:       ds.w 1
+ht_free_ctr:       ds.w 1
     even

@@ -15,6 +15,7 @@ NPART       equ 160
 PART_SIZE   equ 24
 GRAVITY     equ 14              ; 8.8 fixed, added to dy each frame
 LIFE_BASE   equ 40
+SP_FREE_EVERY equ 26    ; frames between bursts when nothing plays
 
 ; particle record
 P_X         equ 0               ; long, 24.8
@@ -26,7 +27,10 @@ P_ADDR      equ 16              ; long, where we lit a pixel last frame
 P_MASK      equ 20              ; word, which bit; 0 = nothing lit
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+sp_init:
     lea     parts,a0
     move.w  #(NPART*PART_SIZE)/4-1,d0
 .zap:
@@ -44,7 +48,26 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+sp_frame:
+    ; with nothing playing this scene has nothing to show, so throw a burst
+    ; of its own now and then
+    cmp.w   #150,idle_ticks
+    bcs.s   .played
+    addq.w  #1,sp_free
+    cmp.w   #SP_FREE_EVERY,sp_free
+    bcs.s   .played
+    clr.w   sp_free
+    bsr     next_rng            ; clobbers d3 and d4, hence nothing of ours
+    move.w  d3,d1
+    and.w   #7,d1
+    add.w   d1,d1               ; pad*2, the way poll_midi passes it
+    move.w  #220,d0
+    bsr     sp_note_on
+.played:
+
     move.l  cur_base,a1
     lea     parts,a5
     move.w  #NPART-1,d7
@@ -108,7 +131,10 @@ show_frame:
 ;----------------------------------------------------------------------
 ; d0 = strength 0..255, d1 = pad index * 2
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_note_on:
+    endif
+sp_note_on:
     movem.l d0-d7/a0-a2,-(sp)
     move.w  d0,d6               ; strength
     lsr.w   #1,d1               ; pad 0..7
@@ -201,6 +227,7 @@ show_note_on:
 scr_w:          ds.l 1
 scr_h:          ds.l 1
 spawn_at:       ds.w 1
+sp_free:        ds.w 1
 spawn_cx:       ds.w 1
 spawn_cy:       ds.w 1
     even

@@ -23,14 +23,22 @@
 ;  is still hidden behind the city: a point pinching on screen is a
 ;  different problem, and a static one.
 ;======================================================================
+    ifnd SCENES
 POOL_SIZE   equ 1024            ; no noise here
+    endif
+    ifnd SCENES
 RANGE_PAGES equ 131             ; 256 pages: two whole screens, 32768 apart
+    endif
     include "src/core/head.s"
 
 NLINES      equ 20              ; must match tools/gengrid.py
 PHASES      equ 64
+    ifnd ROWB
 ROWB        equ 80              ; bytes in a screen row; mono only
+    endif
+    ifnd BACK
 BACK        equ 32768           ; the other screen
+    endif
 GR_TBL      equ 32000           ; after the background: PHASES x NLINES of
 ENTRY       equ 4               ; row.w, thick.b, spare.b
 NFILL       equ 8               ; must match tools/gengrid.py
@@ -40,11 +48,18 @@ STROBE      equ 1               ; the fill steps every 1<<STROBE frames
 SPEED_BASE  equ 900             ; phase per frame at rest: ~18 frames a slot
 SPEED_DECAY equ 70
 SPEED_HIT   equ 14              ; times velocity
+    ifnd FLASH_AT
 FLASH_AT    equ 200             ; a hard hit inverts the whole display
+    endif
+    ifnd FLASH_LEN
 FLASH_LEN   equ 3
+    endif
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+gr_init:
     ; the baked screen into both buffers
     lea     grid_data,a0
     move.l  buf_base,a1
@@ -72,7 +87,10 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+gr_frame:
     ; --- the floor slows back to its resting speed
     move.w  gspeed,d0
     cmp.w   #SPEED_BASE+SPEED_DECAY,d0
@@ -216,7 +234,10 @@ draw_row:
     rts
 
 ;----------------------------------------------------------------------
-show_note_on:                   ; d0 = strength, d1 = pad*2
+    ifnd SCENES
+show_note_on:
+    endif
+gr_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d2,-(sp)
     move.w  d0,d2
     mulu    #SPEED_HIT,d2

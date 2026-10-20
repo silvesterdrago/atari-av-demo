@@ -34,8 +34,12 @@ FRAMESZ     equ 32000
 SPEED_BASE  equ 128             ; one frame every two VBLs: 0.34s a doubling
 SPEED_DECAY equ 12
 SPEED_HIT   equ 6               ; times velocity
+    ifnd FLASH_AT
 FLASH_AT    equ 200
+    endif
+    ifnd FLASH_LEN
 FLASH_LEN   equ 3
+    endif
 
 ;----------------------------------------------------------------------
 show_init:

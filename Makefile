@@ -66,7 +66,12 @@ src/vectors.bin: tools/genvectors.py
 
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
-dist/HYPER.TOS:    src/hyper.bin
+# HYPER reads its frames off the card at start-up rather than carrying them,
+# which is the difference between 375 KB of program and 5 KB. The .DAT has to
+# sit beside the .TOS wherever it runs.
+dist/HYPER.DAT: src/hyper.bin | dist
+	cp $< $@
+dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc
 dist/SOLIDS.TOS:   src/solids.bin
 dist/SHAPES.TOS:   src/shapes.bin
@@ -78,10 +83,15 @@ $(MULTI): src/multi.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
           src/solids.bin src/big.bin | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ src/multi.s
 
-multi: $(MULTI)
-	@ls -la $(MULTI)
+MULTIB := dist/MULTIB.TOS
+$(MULTIB): src/multib.s $(SHOW_SRCS) $(SHOW_DEPS) src/cubes.bin src/half.bin \
+           dist/HYPER.DAT | $(VASM) dist
+	$(VASM) -Ftos -quiet -o $@ src/multib.s
 
-all: $(TARGET) $(SHOW_BINS) $(MULTI)
+multi: $(MULTI) $(MULTIB)
+	@ls -la $(MULTI) $(MULTIB) dist/HYPER.DAT
+
+all: $(TARGET) $(SHOW_BINS) $(MULTI) $(MULTIB)
 
 shows: $(SHOW_BINS)
 	@ls -la $(SHOW_BINS)
@@ -171,7 +181,7 @@ clean:
 	rm -rf dist dist-*
 	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
 	rm -f src/big.bin src/grid.bin grid_preview.png grid_preview_sparse.png
-	rm -f src/hyper.bin hyper_preview.png src/half.bin half_preview.png
+	rm -f src/hyper.bin src/hyper10.bin hyper_preview.png src/half.bin half_preview.png
 	rm -f src/solids.bin src/shapes.bin src/vectors.bin
 
 distclean: clean

@@ -20,13 +20,19 @@
 ;  free.
 ;
 ;  The one catch is hardware: the ST's base register has no low byte, so
-;  a screen must start on a 256-byte boundary. Where TOS loads the DATA
-;  segment is not ours to choose, so the frames are copied once at
-;  start-up into an aligned buffer. That costs the memory twice and a
-;  tenth of a second, and nothing per frame afterwards.
+;  a screen must start on a 256-byte boundary, and where TOS loads a
+;  program is not ours to choose. So the frames are read off the card at
+;  start-up, out of HYPER.DAT beside the binary, straight into an aligned
+;  buffer. Carrying them inside the program instead costs the same memory
+;  twice over -- 375 KB of file AND 375 KB of buffer -- which is what kept
+;  this scene out of any binary that holds another.
 ;======================================================================
+    ifnd SCENES
 POOL_SIZE   equ 1024            ; no noise, no scrolling window
+    endif
+    ifnd SCENES
 RANGE_PAGES equ 1
+    endif
     include "src/core/head.s"
 
 NFRAMES     equ 12              ; must match tools/genhyper.py
@@ -42,30 +48,74 @@ FLASH_LEN   equ 3
     endif
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
-    lea     frames,a1           ; round the buffer up to a 256 boundary
-    move.l  a1,d0
-    add.l   #255,d0
-    and.l   #$ffffff00,d0
-    move.l  d0,frame0
-    move.l  d0,a1
-    lea     hyper_data,a0
-    move.w  #(NFRAMES*FRAMESZ)/32-1,d7
-.cp:
-    movem.l (a0)+,d0-d6/a2
-    movem.l d0-d6/a2,(a1)
-    lea     32(a1),a1
-    dbra    d7,.cp
-
+    endif
+hy_init:
+    bsr     hy_load
     clr.w   hphase
     move.w  #SPEED_BASE,hspeed
-    clr.w   hflash
+    clr.w   hy_flash
     move.l  frame0,d0           ; show the first one immediately
     bsr     set_screen_base
     rts
 
 ;----------------------------------------------------------------------
+; Read the frames into the aligned buffer, once. Entering the scene again
+; must not pay for it twice, and a card without the file must not be asked
+; on every entry -- hy_dead then leaves the scene blank, which is wrong but
+; quiet, and the other scenes still work.
+;----------------------------------------------------------------------
+hy_load:
+    movem.l d0-d2/a0-a1,-(sp)
+    tst.w   hy_ready
+    bne     .out
+    tst.w   hy_dead
+    bne     .out
+
+    lea     frames,a1           ; round the buffer up to a 256 boundary
+    move.l  a1,d0
+    add.l   #255,d0
+    and.l   #$ffffff00,d0
+    move.l  d0,frame0
+
+    clr.w   -(sp)               ; Fopen, read only
+    pea     hy_name
+    move.w  #GD_FOPEN,-(sp)
+    trap    #1
+    lea     8(sp),sp
+    tst.l   d0
+    bmi.s   .nofile
+    move.w  d0,d2               ; the handle
+
+    move.l  frame0,-(sp)        ; Fread, straight into the aligned buffer
+    move.l  #NFRAMES*FRAMESZ,-(sp)
+    move.w  d2,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    move.l  d0,d1
+
+    move.w  d2,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
+
+    cmp.l   #NFRAMES*FRAMESZ,d1
+    bne.s   .nofile             ; a short read is not our file
+    move.w  #1,hy_ready
+    bra.s   .out
+.nofile:
+    move.w  #1,hy_dead
+.out:
+    movem.l (sp)+,d0-d2/a0-a1
+    rts
+
+;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+hy_frame:
     move.w  hspeed,d0           ; the jump slows back to its cruise
     cmp.w   #SPEED_BASE+SPEED_DECAY,d0
     bcs.s   .sk
@@ -77,13 +127,15 @@ show_frame:
     move.w  d0,hspeed
     add.w   d0,hphase
 
-    tst.w   hflash              ; one word to the palette, so it is free
+    tst.w   hy_flash              ; one word to the palette, so it is free
     beq.s   .noflash
-    subq.w  #1,hflash
+    subq.w  #1,hy_flash
     bne.s   .noflash
     move.w  #$000,PALETTE_HW
 .noflash:
 
+    tst.w   hy_ready            ; no frames, nothing to show
+    beq.s   .out
     move.w  hphase,d0
     lsr.w   #8,d0
     and.l   #$ffff,d0
@@ -93,10 +145,14 @@ show_frame:
     mulu    #FRAMESZ,d0
     add.l   frame0,d0
     bsr     set_screen_base
+.out:
     rts
 
 ;----------------------------------------------------------------------
-show_note_on:                   ; d0 = strength, d1 = pad*2
+    ifnd SCENES
+show_note_on:
+    endif
+hy_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d2,-(sp)
     move.w  d0,d2
     mulu    #SPEED_HIT,d2
@@ -109,7 +165,7 @@ show_note_on:                   ; d0 = strength, d1 = pad*2
     cmp.w   #FLASH_AT,d0
     bcs.s   .done
     move.w  #$777,PALETTE_HW    ; the whole jump inverts for a moment
-    move.w  #FLASH_LEN,hflash
+    move.w  #FLASH_LEN,hy_flash
 .done:
     movem.l (sp)+,d0-d2
     rts
@@ -119,8 +175,9 @@ show_note_on:                   ; d0 = strength, d1 = pad*2
 ;----------------------------------------------------------------------
     section data
     even
-hyper_data:
-    incbin  "src/hyper.bin"
+hy_name:
+    dc.b    "HYPER.DAT",0
+    even
 
 ;----------------------------------------------------------------------
     section bss
@@ -129,5 +186,7 @@ frames:         ds.b NFRAMES*FRAMESZ+256
 frame0:         ds.l 1
 hphase:         ds.w 1
 hspeed:         ds.w 1
-hflash:         ds.w 1
+hy_flash:       ds.w 1
+hy_ready:       ds.w 1
+hy_dead:        ds.w 1
     even

@@ -55,6 +55,9 @@ GD_PTERM0   equ 0
 GD_CNECIN   equ 8
 GD_CCONIS   equ 11
 GD_SUPER    equ 32
+GD_FOPEN    equ $3d
+GD_FCLOSE   equ $3e
+GD_FREAD    equ $3f
 
 ; ---- BIOS (trap #13) -------------------------------------------------
 B_BCONSTAT  equ 1

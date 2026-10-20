@@ -25,18 +25,20 @@ File layout: NFRAMES screens of 32000 bytes, ST mono, 80 bytes a row. Each
 is 256-byte aligned by construction (32000 = 125*256), so the base register
 can point straight at any of them.
 """
-import math, os, random, struct, zlib
+import math, os, random, struct, sys, zlib
 
 W, H     = 640, 400
 CX, CY   = 320, 200
-NFRAMES  = 12               # 12 x 32000 twice over: baked, then aligned
+# Frame count and output come from the command line: a binary sharing the
+# machine with other scenes cannot afford twelve of these twice over.
+NFRAMES  = int(sys.argv[1]) if len(sys.argv) > 1 else 12
 G        = 2.0             # one loop is one doubling of every radius
 BLUR     = 0.34            # streak length as a fraction of radius
 R0       = 2.2
 NSTAR    = 210             # (angle, phase) pairs, each repeated per octave
 RMAX     = 430.0
-OUT      = "src/hyper.bin"
-PREVIEW  = "hyper_preview.png"
+OUT      = sys.argv[2] if len(sys.argv) > 2 else "src/hyper.bin"
+PREVIEW  = OUT.replace("src/", "").replace(".bin", "_preview.png")
 
 rnd = random.Random(11)
 # One star is an angle and a radial phase; copies of it live at every octave,

@@ -87,14 +87,21 @@ BARS_PERSP = '''            _za, _zb = max(1.0, z), min(zend, z + 0.20)
 # frame is 22 px thick where the edge crossing it is 8, and every junction
 # between the two reads as a collision rather than a joint.
 #
-# A frame is a band of the tunnel wall of some fixed length along the axis,
-# which projects as 1/z**2: it thickens toward the viewer much faster than
-# 1/z. The corner edges are then built as tapered bands sampled at the SAME
-# depths with the SAME thickness, so each one is exactly as wide as the frame
-# it crosses and the two meet flush.
+# A frame is a band of the tunnel wall cut across the axis, between depth z
+# and z', so it is drawn as the four quads of wall between those depths. That
+# puts BOTH of each corner's vertices -- outer at z, inner at z' -- on the ray
+# through the vanishing point, which is the corner edge's own centre line, so
+# the ring mitres into the edge instead of stepping across it. Stroking a
+# rectangle inward cannot do this: it steps in equally in x and y, at 45
+# degrees, while the ray runs at atan(H/W).
 #
-# Frames also start nearer than z=1 and slide off the edges instead of
-# vanishing at the border, which is what z=1 means: the screen itself.
+# Side bars then come out (W/2)/(H/2) = 1.6 times thicker than top and bottom,
+# which is what perspective says: the side walls are further out. The corner
+# edge takes the geometric mean of the two, so it sits between them.
+#
+# t is the side bar's thickness at z=1, in pixels; the axial length of the
+# band follows from it. Frames also start nearer than z=1 and slide off the
+# edges, since z=1 is the screen itself.
 TUNNEL_PLAIN = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         thick_line(d, cz(sx, sy, 1, vx, vy), cz(sx, sy, zmax, vx, vy), 8)
     zs = []
@@ -111,19 +118,33 @@ TUNNEL_PERSP = '''    zs = []
         if z >= 0.8:
             zs.append(z)
         z *= ratio
-    def _th(_z):
-        return max(2.0, t / _z ** 2)
+    _u = min(0.45, t / (W / 2))
+    _dz = _u / (1 - _u)
+    def _shrink(_z):                      # 1/z - 1/z', the band's radial span
+        _s = 1.0 / _z - 1.0 / (_z + _dz)
+        _s = max(_s, 2.0 / (H / 2))       # the thin bar never under two pixels
+        return min(_s, 0.9 / _z)
+    def _far(_z):
+        return 1.0 / (1.0 / _z - _shrink(_z))
+    def _q(pts):
+        d.polygon([(R(_x), R(_y)) for _x, _y in pts], fill=1)
     for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-        _ps = [(cz(sx, sy, _z, vx, vy), _th(_z)) for _z in zs + [zmax]]
-        _dx = _ps[-1][0][0] - _ps[0][0][0]
-        _dy = _ps[-1][0][1] - _ps[0][0][1]
+        _w = [math.sqrt(W * H) / 2 * _shrink(_z) for _z in zs + [zmax]]
+        _ps = [cz(sx, sy, _z, vx, vy) for _z in zs + [zmax]]
+        _dx, _dy = _ps[-1][0] - _ps[0][0], _ps[-1][1] - _ps[0][1]
         _l = math.hypot(_dx, _dy) or 1.0
         _ux, _uy = -_dy / _l, _dx / _l
-        _a = [(R(p[0] + _ux * w / 2), R(p[1] + _uy * w / 2)) for p, w in _ps]
-        _b = [(R(p[0] - _ux * w / 2), R(p[1] - _uy * w / 2)) for p, w in _ps]
-        d.polygon(_a + _b[::-1], fill=1)
+        _a = [(p[0] + _ux * w / 2, p[1] + _uy * w / 2) for p, w in zip(_ps, _w)]
+        _b = [(p[0] - _ux * w / 2, p[1] - _uy * w / 2) for p, w in zip(_ps, _w)]
+        _q(_a + _b[::-1])
     for _z in zs:
-        frame_c(d, vx, vy, W / _z, H / _z, _th(_z))'''
+        _zf = _far(_z)
+        for _sy in (-1, 1):
+            _q([cz(-1, _sy, _z, vx, vy), cz(1, _sy, _z, vx, vy),
+                cz(1, _sy, _zf, vx, vy), cz(-1, _sy, _zf, vx, vy)])
+        for _sx in (-1, 1):
+            _q([cz(_sx, -1, _z, vx, vy), cz(_sx, 1, _z, vx, vy),
+                cz(_sx, 1, _zf, vx, vy), cz(_sx, -1, _zf, vx, vy)])'''
 
 
 def sysmod(h=H, mitre=False):

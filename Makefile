@@ -66,6 +66,7 @@ src/vectors.bin: tools/genvectors.py
 
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
+dist/VIEWER.TOS:   dist/TEST.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every
@@ -78,6 +79,10 @@ dist/SOLIDS.DAT: src/solids.bin | dist
 	cp $< $@
 dist/BIG.DAT: src/big.bin | dist
 	cp $< $@
+dist/TEST.DAT: src/test.bin | dist
+	cp $< $@
+src/test.bin: tools/gentest.py
+	python3 tools/gentest.py
 DATS := dist/HYPER.DAT dist/CUBES.DAT dist/SOLIDS.DAT dist/BIG.DAT
 dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc
@@ -194,7 +199,8 @@ clean:
 	rm -rf dist dist-*
 	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
 	rm -f src/big.bin src/grid.bin grid_preview.png grid_preview_sparse.png
-	rm -f src/hyper.bin src/hyper10.bin hyper_preview.png src/half.bin half_preview.png
+	rm -f src/hyper.bin src/hyper10.bin hyper_preview.png
+	rm -f src/test.bin test_preview.png src/half.bin half_preview.png
 	rm -f src/solids.bin src/shapes.bin src/vectors.bin
 
 distclean: clean

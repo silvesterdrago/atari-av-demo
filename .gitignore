@@ -28,5 +28,8 @@ grid_preview.png
 grid_preview_sparse.png
 src/hyper.bin
 hyper_preview.png
+src/test.bin
+test_preview.png
 src/half.bin
 half_preview.png
+build/

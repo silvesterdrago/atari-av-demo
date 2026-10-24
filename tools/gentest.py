@@ -92,19 +92,30 @@ MITRE = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         _l = math.hypot(_dx, _dy) or 1.0
         _nx, _ny = -_dy / _l * t / 2, _dx / _l * t / 2
         _f = t * 0.8 / 2
-        _out = (_q[0] + sx * _f, _q[1] + sy * _f)
-        _in = (_q[0] - sx * _f, _q[1] - sy * _f)
-        d.polygon([(R(_p[0] + _nx), R(_p[1] + _ny)), (R(_out[0]), R(_out[1])),
-                   (R(_in[0]), R(_in[1])), (R(_p[0] - _nx), R(_p[1] - _ny))], fill=1)'''
+        _a = (_q[0] + sx * _f, _q[1] + sy * _f)
+        _b = (_q[0] - sx * _f, _q[1] - sy * _f)
+        if (_a[0] - _q[0]) * _nx + (_a[1] - _q[1]) * _ny < 0:
+            _a, _b = _b, _a        # keep the quad simple: a self-crossing one
+        d.polygon([(R(_p[0] + _nx), R(_p[1] + _ny)), (R(_a[0]), R(_a[1])),
+                   (R(_b[0]), R(_b[1])), (R(_p[0] - _nx), R(_p[1] - _ny))], fill=1)'''
 PLAIN = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         thick_line(d, cz(sx, sy, 1, vx, vy), cz(sx, sy, zend, vx, vy), t)'''
 
-# A floor bar's thickness falls off as 26/z, which is the law for something
-# facing the viewer. A bar lying on the floor is also foreshortened, so its
-# projected height goes as 1/z squared -- and that is what makes the run read
-# as depth rather than as a ladder of nearly equal rungs.
-BARS_PLAIN = '''            th = max(3, 26 / z)'''
-BARS_PERSP = '''            th = max(1, 80 / (z * z))'''
+# A floor bar is drawn as an axis-aligned rectangle of some thickness, which
+# is the wrong shape: a bar lying on the floor spans a slice of DEPTH, so its
+# near edge is wider than its far edge and the two edges sit at the heights
+# perspective puts them. Drawn as the quad across that slice, the taper and
+# the thinning with distance both come out of the projection and no thickness
+# formula is needed at all.
+BARS_PLAIN = '''            y = cz(0, 1, z, vx, vy)[1]
+            xl, xr = cz(-1, 1, z, vx, vy)[0], cz(1, 1, z, vx, vy)[0]
+            th = max(3, 26 / z)
+            bar(d, xl, y - th / 2, xr, y + th / 2)'''
+BARS_PERSP = '''            _za, _zb = max(1.0, z), min(zend, z + 0.20)
+            if _zb > _za:
+                _q4 = [cz(-1, 1, _za, vx, vy), cz(1, 1, _za, vx, vy),
+                       cz(1, 1, _zb, vx, vy), cz(-1, 1, _zb, vx, vy)]
+                d.polygon([(R(_x), R(_y)) for _x, _y in _q4], fill=1)'''
 
 
 def sysmod(h, mitre=False):

@@ -99,6 +99,12 @@ BARS_PERSP = '''            _za, _zb = max(1.0, z), min(zend, z + 0.20)
 # which is what perspective says: the side walls are further out. The corner
 # edge takes the geometric mean of the two, so it sits between them.
 #
+# The corner edge starts at a FIXED depth, not at the nearest frame: the
+# frames drift between z=0.84 and z=1.14, and whenever the nearest one was
+# deeper than 1 its corner already sat inside the screen, so the edge began
+# in mid-air some 38 pixels short of the corner -- a visible break in a
+# third of the loop.
+#
 # t is the side bar's thickness at z=1, in pixels; the axial length of the
 # band follows from it. Frames also start nearer than z=1 and slide off the
 # edges, since z=1 is the screen itself.
@@ -128,9 +134,10 @@ TUNNEL_PERSP = '''    zs = []
         return 1.0 / (1.0 / _z - _shrink(_z))
     def _q(pts):
         d.polygon([(R(_x), R(_y)) for _x, _y in pts], fill=1)
+    _zb = [0.75] + [_z for _z in zs if _z > 0.75] + [zmax]
     for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-        _w = [math.sqrt(W * H) / 2 * _shrink(_z) for _z in zs + [zmax]]
-        _ps = [cz(sx, sy, _z, vx, vy) for _z in zs + [zmax]]
+        _w = [math.sqrt(W * H) / 2 * _shrink(_z) for _z in _zb]
+        _ps = [cz(sx, sy, _z, vx, vy) for _z in _zb]
         _dx, _dy = _ps[-1][0] - _ps[0][0], _ps[-1][1] - _ps[0][1]
         _l = math.hypot(_dx, _dy) or 1.0
         _ux, _uy = -_dy / _l, _dx / _l

@@ -75,20 +75,36 @@ import importlib.util, re, tempfile
 _MODS = {}
 
 
-# The corridor's four corner edges are thick_line()s ending on the axis of
-# the far opening's corner, where Pillow puts a flat cap perpendicular to the
-# diagonal. The end wall is axis-aligned, so a wedge about t/2 across is left
-# open at each corner -- visible in the pack's own 1920x1080 frames. Running
-# each edge t/2 past the corner closes it: both shapes are white, so the
-# overlap cannot be seen.
+# A corner edge is a thick_line ending on the AXIS of the far opening's
+# corner, so Pillow caps it flat and perpendicular to the diagonal while the
+# end wall is axis-aligned: that leaves a wedge about t/2 across open at each
+# corner, which the pack's own 1920x1080 frames show. Simply running the line
+# past the corner closes the wedge but then the cap pokes out beyond the wall.
+#
+# Drawn as a trapezoid instead, the far end lands across the end wall frame's
+# corner -- from its outer corner to its inner one -- so the edge meets the
+# frame along the frame's own thickness and neither gaps nor overhangs. The
+# slight narrowing toward the far end is what perspective asks for anyway.
 MITRE = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         _p = cz(sx, sy, 1, vx, vy)
         _q = cz(sx, sy, zend, vx, vy)
         _dx, _dy = _q[0] - _p[0], _q[1] - _p[1]
         _l = math.hypot(_dx, _dy) or 1.0
-        thick_line(d, _p, (_q[0] + _dx / _l * t / 2, _q[1] + _dy / _l * t / 2), t)'''
+        _nx, _ny = -_dy / _l * t / 2, _dx / _l * t / 2
+        _f = t * 0.8 / 2
+        _out = (_q[0] + sx * _f, _q[1] + sy * _f)
+        _in = (_q[0] - sx * _f, _q[1] - sy * _f)
+        d.polygon([(R(_p[0] + _nx), R(_p[1] + _ny)), (R(_out[0]), R(_out[1])),
+                   (R(_in[0]), R(_in[1])), (R(_p[0] - _nx), R(_p[1] - _ny))], fill=1)'''
 PLAIN = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
         thick_line(d, cz(sx, sy, 1, vx, vy), cz(sx, sy, zend, vx, vy), t)'''
+
+# A floor bar's thickness falls off as 26/z, which is the law for something
+# facing the viewer. A bar lying on the floor is also foreshortened, so its
+# projected height goes as 1/z squared -- and that is what makes the run read
+# as depth rather than as a ladder of nearly equal rungs.
+BARS_PLAIN = '''            th = max(3, 26 / z)'''
+BARS_PERSP = '''            th = max(1, 80 / (z * z))'''
 
 
 def sysmod(h, mitre=False):
@@ -99,6 +115,8 @@ def sysmod(h, mitre=False):
     src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
     if mitre:
         assert PLAIN in src, "corridor's corner-edge loop moved"
+        assert BARS_PLAIN in src, "corridor's floor-bar thickness moved"
+        src = src.replace(BARS_PLAIN, BARS_PERSP, 1)
         src = src.replace(PLAIN, MITRE, 1)
     d = tempfile.mkdtemp()
     f = os.path.join(d, f"sysv{h}{'m' if mitre else ''}.py")

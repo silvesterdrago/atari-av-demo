@@ -33,3 +33,6 @@ test_preview.png
 src/half.bin
 half_preview.png
 build/
+src/corr.bin
+corr_preview.png
+corr_preview.gif

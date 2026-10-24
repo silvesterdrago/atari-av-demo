@@ -67,6 +67,7 @@ src/vectors.bin: tools/genvectors.py
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
 dist/VIEWER.TOS:   dist/TEST.DAT
+dist/CORRIDOR.TOS: dist/CORRIDOR.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every
@@ -81,8 +82,12 @@ dist/BIG.DAT: src/big.bin | dist
 	cp $< $@
 dist/TEST.DAT: src/test.bin | dist
 	cp $< $@
-src/test.bin: tools/gentest.py
+src/test.bin: tools/gentest.py tools/sysload.py
 	python3 tools/gentest.py
+dist/CORRIDOR.DAT: src/corr.bin | dist
+	cp $< $@
+src/corr.bin: tools/gencorr.py tools/sysload.py
+	python3 tools/gencorr.py
 DATS := dist/HYPER.DAT dist/CUBES.DAT dist/SOLIDS.DAT dist/BIG.DAT
 dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc

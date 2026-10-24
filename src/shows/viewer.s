@@ -8,6 +8,7 @@
 ;  TEST.DAT must sit beside the binary. Screens, in order:
 ;    0 calibration   1 thickness
 ;    2/3 corridor     4/5 tunnel    6/7 spiral    8/9 concentric
+;    10 corridor with its corner edges mitred onto the end wall
 ;  of each pair the first is rendered natively at 640x400 and the second
 ;  composed at 640x480 and squashed, which is the question being asked.
 ;======================================================================
@@ -15,7 +16,7 @@ POOL_SIZE   equ 1024
 RANGE_PAGES equ 1
     include "src/core/head.s"
 
-NSHOT       equ 10              ; must match tools/gentest.py
+NSHOT       equ 11              ; must match tools/gentest.py
 SHOTSZ      equ 32000
 
 ;----------------------------------------------------------------------

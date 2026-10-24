@@ -66,13 +66,55 @@ def pack(im):
     return bytes(out)
 
 
-def render(scene, mode):
+# The canvas size has to be right BEFORE the module is imported: system.py
+# computes CX, CY from W, H at import, and binds them again as cz()'s default
+# arguments, so assigning s.H afterwards moves the geometry but leaves the
+# vanishing point behind -- and the corridor's corner edges stop meeting its
+# end wall. One patched copy per size, imported separately.
+import importlib.util, re, tempfile
+_MODS = {}
+
+
+# The corridor's four corner edges are thick_line()s ending on the axis of
+# the far opening's corner, where Pillow puts a flat cap perpendicular to the
+# diagonal. The end wall is axis-aligned, so a wedge about t/2 across is left
+# open at each corner -- visible in the pack's own 1920x1080 frames. Running
+# each edge t/2 past the corner closes it: both shapes are white, so the
+# overlap cannot be seen.
+MITRE = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        _p = cz(sx, sy, 1, vx, vy)
+        _q = cz(sx, sy, zend, vx, vy)
+        _dx, _dy = _q[0] - _p[0], _q[1] - _p[1]
+        _l = math.hypot(_dx, _dy) or 1.0
+        thick_line(d, _p, (_q[0] + _dx / _l * t / 2, _q[1] + _dy / _l * t / 2), t)'''
+PLAIN = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        thick_line(d, cz(sx, sy, 1, vx, vy), cz(sx, sy, zend, vx, vy), t)'''
+
+
+def sysmod(h, mitre=False):
+    key = (h, mitre)
+    if key in _MODS:
+        return _MODS[key]
+    src = open(os.path.join(SRC, "system.py")).read()
+    src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
+    if mitre:
+        assert PLAIN in src, "corridor's corner-edge loop moved"
+        src = src.replace(PLAIN, MITRE, 1)
+    d = tempfile.mkdtemp()
+    f = os.path.join(d, f"sysv{h}{'m' if mitre else ''}.py")
+    open(f, "w").write(src)
+    spec = importlib.util.spec_from_file_location(f"sysv{h}{'m' if mitre else ''}", f)
+    m = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = m
+    spec.loader.exec_module(m)
+    assert (m.W, m.H) == (W, h) and (m.CX, m.CY) == (W//2, h//2)
+    _MODS[key] = m
+    return m
+
+
+def render(scene, mode, mitre=False):
     """mode 'native' renders at 640x400; 'squash' at 640x480 then drops rows"""
-    import importlib
-    sys.path.insert(0, SRC)
-    import system as s
-    s.W, s.H = (W, H) if mode == "native" else (W, TALL)
-    im = scene(s)
+    im = scene(sysmod(H if mode == "native" else TALL, mitre))
     if mode == "squash":
         im = im.resize((W, H), Image.NEAREST)
     return im
@@ -90,6 +132,8 @@ for name, fn in SCENES:
             shots.append((f"{name}_{mode}", render(fn, mode)))
         except Exception as e:
             print(f"  {name} {mode}: FAILED {type(e).__name__}: {e}")
+
+shots.append(("corridor_mitred", render(SCENES[0][1], "native", mitre=True)))
 
 blob = b"".join(pack(im) for _, im in shots)
 os.makedirs("src", exist_ok=True)

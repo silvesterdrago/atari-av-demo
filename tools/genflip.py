@@ -20,11 +20,14 @@ from sysload import H, W, pack, sysmod
 
 NFRAMES = 24            # must match src/shows/flipbook.inc
 
-# t is the axial length of the band each frame is cut from: 28 spreads the
-# tunnel's six visible frames over 28, 14, 7, 3, 2, 2 pixels, where 22 would
-# put three of them on the 2-pixel floor.
+# t is the tunnel side bar's thickness at z=1, which sets the axial length of
+# the band every frame is cut from: 28 runs the top and bottom bars of the six
+# visible frames over 19, 10, 5, 3, 3, 3 pixels.
+# amp scales with the row spacing: their grid is 640x360, ours 400 rows, so
+# 52 * 400/360 keeps the waves the same size relative to the gaps they ride in.
 SCENES = {"corr": ("corridor", {}),
-          "tun":  ("tunnel", {"t": 28})}
+          "tun":  ("tunnel", {"t": 28}),
+          "wave": ("wave", {"amp": 58})}
 
 name = sys.argv[1] if len(sys.argv) > 1 else ""
 if name not in SCENES:

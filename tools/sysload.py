@@ -81,6 +81,51 @@ BARS_PERSP = '''            _za, _zb = max(1.0, z), min(zend, z + 0.20)
                 d.polygon([(R(_x), R(_y)) for _x, _y in _q4], fill=1)'''
 
 
+# The tunnel has the same two defects as the corridor, in its own form. Its
+# frames take a 1/z thickness from a formula and are stroked at a constant
+# width, and its corner edges are a thick_line of a FIXED 8 px -- so a near
+# frame is 22 px thick where the edge crossing it is 8, and every junction
+# between the two reads as a collision rather than a joint.
+#
+# A frame is a band of the tunnel wall of some fixed length along the axis,
+# which projects as 1/z**2: it thickens toward the viewer much faster than
+# 1/z. The corner edges are then built as tapered bands sampled at the SAME
+# depths with the SAME thickness, so each one is exactly as wide as the frame
+# it crosses and the two meet flush.
+#
+# Frames also start nearer than z=1 and slide off the edges instead of
+# vanishing at the border, which is what z=1 means: the screen itself.
+TUNNEL_PLAIN = '''    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        thick_line(d, cz(sx, sy, 1, vx, vy), cz(sx, sy, zmax, vx, vy), 8)
+    zs = []
+    z = ratio ** (-phase)
+    while z < zmax:
+        if z >= 1.0:
+            zs.append(z)
+        z *= ratio
+    for z in zs:
+        frame_c(d, vx, vy, W / z, H / z, max(4, t / z))'''
+TUNNEL_PERSP = '''    zs = []
+    z = ratio ** (-phase - 3)
+    while z < zmax:
+        if z >= 0.8:
+            zs.append(z)
+        z *= ratio
+    def _th(_z):
+        return max(2.0, t / _z ** 2)
+    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        _ps = [(cz(sx, sy, _z, vx, vy), _th(_z)) for _z in zs + [zmax]]
+        _dx = _ps[-1][0][0] - _ps[0][0][0]
+        _dy = _ps[-1][0][1] - _ps[0][0][1]
+        _l = math.hypot(_dx, _dy) or 1.0
+        _ux, _uy = -_dy / _l, _dx / _l
+        _a = [(R(p[0] + _ux * w / 2), R(p[1] + _uy * w / 2)) for p, w in _ps]
+        _b = [(R(p[0] - _ux * w / 2), R(p[1] - _uy * w / 2)) for p, w in _ps]
+        d.polygon(_a + _b[::-1], fill=1)
+    for _z in zs:
+        frame_c(d, vx, vy, W / _z, H / _z, _th(_z))'''
+
+
 def sysmod(h=H, mitre=False):
     key = (h, mitre)
     if key in _MODS:
@@ -90,8 +135,10 @@ def sysmod(h=H, mitre=False):
     if mitre:
         assert PLAIN in src, "corridor's corner-edge loop moved"
         assert BARS_PLAIN in src, "corridor's floor-bar thickness moved"
+        assert src.count(TUNNEL_PLAIN) == 1, "tunnel's frame loop moved"
         src = src.replace(BARS_PLAIN, BARS_PERSP, 1)
         src = src.replace(PLAIN, MITRE, 1)
+        src = src.replace(TUNNEL_PLAIN, TUNNEL_PERSP, 1)
     d = tempfile.mkdtemp()
     f = os.path.join(d, f"sysv{h}{'m' if mitre else ''}.py")
     open(f, "w").write(src)

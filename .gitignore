@@ -36,3 +36,6 @@ build/
 src/corr.bin
 corr_preview.png
 corr_preview.gif
+src/tun.bin
+tun_preview.png
+tun_preview.gif

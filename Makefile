@@ -37,7 +37,7 @@ MIDIOPTS := --midi-in $(FIFO) --midi-out /dev/null
 # Each source in src/shows/ is one idea and builds its own binary on top of
 # src/core/. dist/NOISEAV.TOS is the older all-in-one show and is left alone.
 SHOW_SRCS := $(wildcard src/shows/*.s)
-SHOW_DEPS := src/core/head.s src/core/tail.s
+SHOW_DEPS := src/core/head.s src/core/tail.s src/shows/flipbook.inc
 SHOW_BINS :=
 
 define SHOW_RULE
@@ -68,6 +68,7 @@ dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
 dist/VIEWER.TOS:   dist/TEST.DAT
 dist/CORRIDOR.TOS: dist/CORRIDOR.DAT
+dist/TUNNEL.TOS:   dist/TUNNEL.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every
@@ -86,8 +87,12 @@ src/test.bin: tools/gentest.py tools/sysload.py
 	python3 tools/gentest.py
 dist/CORRIDOR.DAT: src/corr.bin | dist
 	cp $< $@
-src/corr.bin: tools/gencorr.py tools/sysload.py
-	python3 tools/gencorr.py
+dist/TUNNEL.DAT: src/tun.bin | dist
+	cp $< $@
+src/corr.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py corr
+src/tun.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py tun
 DATS := dist/HYPER.DAT dist/CUBES.DAT dist/SOLIDS.DAT dist/BIG.DAT
 dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc

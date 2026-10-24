@@ -13,7 +13,7 @@ SRC="$1"; NAME="$2"; VBLS="$3"; shift 3
 OUT=/tmp/navcap
 mkdir -p "$OUT/d-$NAME" build
 tools/vasm/vasmm68k_mot -Ftos -quiet -DDIAG=1 "$@" -o "$OUT/d-$NAME/X.TOS" "$SRC"
-for f in hyper:HYPER cubes:CUBES solids:SOLIDS big:BIG test:TEST grid:GRID corr:CORRIDOR; do
+for f in hyper:HYPER cubes:CUBES solids:SOLIDS big:BIG test:TEST grid:GRID corr:CORRIDOR tun:TUNNEL; do
   [ -f "src/${f%%:*}.bin" ] && cp -f "src/${f%%:*}.bin" "$OUT/d-$NAME/${f##*:}.DAT"
 done
 TOS=$(ls /opt/homebrew/share/hatari/tos.img)

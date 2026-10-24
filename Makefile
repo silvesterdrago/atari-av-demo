@@ -70,6 +70,7 @@ dist/VIEWER.TOS:   dist/TEST.DAT
 dist/CORRIDOR.TOS: dist/CORRIDOR.DAT
 dist/TUNNEL.TOS:   dist/TUNNEL.DAT
 dist/WAVE.TOS:     dist/WAVE.DAT
+dist/DISSOLVE.TOS: dist/DISSOLVE.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every
@@ -92,12 +93,16 @@ dist/TUNNEL.DAT: src/tun.bin | dist
 	cp $< $@
 dist/WAVE.DAT: src/wave.bin | dist
 	cp $< $@
+dist/DISSOLVE.DAT: src/dis.bin | dist
+	cp $< $@
 src/corr.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py corr
 src/tun.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py tun
 src/wave.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py wave
+src/dis.bin: tools/gendis.py tools/sysload.py
+	python3 tools/gendis.py
 DATS := dist/HYPER.DAT dist/CUBES.DAT dist/SOLIDS.DAT dist/BIG.DAT
 dist/HYPER.TOS:    dist/HYPER.DAT
 dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc

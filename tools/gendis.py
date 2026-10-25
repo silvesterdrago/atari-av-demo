@@ -11,9 +11,18 @@ the ST scales by the current amount. The blank left behind is the black gap,
 so no tile has to be removed for one to open: a removed tile is the one thing
 in their scene that cannot breathe.
 
-Few and large beats many and small here: sixteen blocks, 64 to 96 pixels
-across, displaced up to 96. That also holds the composition to two batches, so
-a picture takes four VBLs instead of seven.
+The break-up also comes in levels, and each level has its OWN set of blocks
+rather than the previous set plus more. Crossing into one therefore re-deals
+the whole picture, which is what makes it read as a fault rather than a script
+playing out. Each level takes more of the frame and reaches further in toward
+the vanishing point: the radius it draws from starts at the rim and walks to
+the centre, so the deepest level can break the far end of the corridor.
+
+Area grows by COUNT, never by block size: 4 blocks at the rim to 16 at the
+centre. A larger block costs its area twice over -- blanked, then laid down --
+and eight blocks a frame is already the ceiling that fits. Because each level
+is drawn independently, old territory loses blocks as the new ground is taken,
+which is the only way coverage can move inward on a fixed budget.
 
 Two constraints the table guarantees, so the ST needs no clipping and no bit
 shifting. Every x and displacement is a multiple of 16 pixels and every width
@@ -26,8 +35,10 @@ Blocks are ordered outside in, so the count rising with the amount IS the
 break-up spreading from the edges -- what their `dist` test does with
 probability.
 
-    0  nblk.w, then nblk x {xb y wb h uxb uy} as words
-       xb, wb, uxb in BYTES; y, h, uy in rows
+    0            nlev.w
+    2 + j*LEVSZ  level j: count.w, then MAXBLK x {xb y wb h uxb uy} as words,
+                 the entries past count never read
+                 xb, wb, uxb in BYTES; y, h, uy in rows
 """
 import math
 import random
@@ -35,46 +46,93 @@ import struct
 from PIL import Image
 from sysload import H, W, sysmod
 
-NBLK = 16
-AMTFULL = 4096          # must match AMTFULL in src/shows/dissolve.s
+AMTFULL = 4096          # all four must match src/shows/dissolve.s
+NLEV = 6
+MAXBLK = 16
+COUNTS = (4, 6, 9, 11, 14, 16)
+RMIN = (0.78, 0.62, 0.47, 0.32, 0.16, 0.0)      # how far in each level reaches
 OUT = "src/dis.bin"
 GIF = "dis_preview.gif"
+SHEET = "dis_levels.png"
 
-rnd = random.Random(7)
-blocks = []
-while len(blocks) < NBLK:
-    w = rnd.choice((64, 96))
-    h = rnd.randint(40, 80)
-    x = rnd.randrange(0, W - w + 1, 16)
-    y = rnd.randint(0, H - h)
-    dist = math.hypot(x + w / 2 - W / 2, y + h / 2 - H / 2) / math.hypot(W / 2, H / 2)
-    if rnd.random() > dist * 1.3:
-        continue
-    ux = rnd.choice((-96, -64, -48, -32, 32, 48, 64, 96))
-    uy = rnd.choice((-1, 1)) * rnd.randint(14, 44)
-    ux = max(-x, min(ux, W - w - x)) // 16 * 16
-    uy = max(-y, min(uy, H - h - y))
-    blocks.append((dist, x, y, w, h, ux, uy))
-blocks.sort(key=lambda b: -b[0])
 
-tab = struct.pack(">H", len(blocks))
-for _, x, y, w, h, ux, uy in blocks:
-    assert x % 16 == ux % 16 == 0 and w in (64, 96)   # dissolve.s has a
-                                                     # row per width
-    assert 0 <= x and x + w <= W and 0 <= y and y + h <= H
-    assert 0 <= x + ux and x + ux + w <= W
-    assert 0 <= y + uy and y + uy + h <= H
-    tab += struct.pack(">6h", x // 8, y, w // 8, h, ux // 8, uy)
-assert len(tab) == 2 + NBLK * 12, "TABSZ in src/shows/dissolve.s must match"
+def level(j):
+    """one level's blocks, drawn from its own stream so no level is another's
+    superset -- crossing into it re-deals the picture"""
+    rnd = random.Random(7 + 101 * j)
+    out = []
+    while len(out) < COUNTS[j]:
+        w = rnd.choice((64, 96))
+        h = rnd.randint(40, 80)
+        # The RADIUS is drawn, not the position. Drawing a position instead
+        # makes the middle of the frame improbable -- there is little area
+        # there -- and the deepest level then never reaches the far end of the
+        # corridor. Drawing r also thins the rim as a level widens, which is
+        # the old territory giving way.
+        r = rnd.uniform(RMIN[j], 1.0)
+        a = rnd.uniform(0, 2 * math.pi)
+        x = min(W - w, max(0, round((W / 2 + math.cos(a) * r * W / 2 - w / 2) / 16) * 16))
+        y = min(H - h, max(0, round(H / 2 + math.sin(a) * r * H / 2 - h / 2)))
+        r = math.hypot(x + w / 2 - W / 2, y + h / 2 - H / 2) / math.hypot(W / 2, H / 2)
+        if r < RMIN[j]:
+            continue                    # clamping into the frame pulls a block
+                                        # inward, past its level's floor
+        ux = rnd.choice((-96, -64, -48, -32, 32, 48, 64, 96))
+        uy = rnd.choice((-1, 1)) * rnd.randint(14, 44)
+        ux = max(-x, min(ux, W - w - x)) // 16 * 16
+        uy = max(-y, min(uy, H - h - y))
+        out.append((r, x, y, w, h, ux, uy))
+    out.sort(key=lambda b: -b[0])
+    return out
+
+
+levels = [level(j) for j in range(NLEV)]
+
+area = [sum(b[3] * b[4] for b in lv) for lv in levels]
+reach = [min(b[0] for b in lv) for lv in levels]
+for j in range(1, NLEV):
+    assert area[j] > area[j - 1], "a level has to take more of the frame"
+    assert reach[j] < reach[j - 1], "and reach further in"
+    shared = {b[1:] for b in levels[j]} & {b[1:] for b in levels[j - 1]}
+    assert len(shared) <= 1, "levels must not be one another's supersets"
+print(f"{'level':5} {'blocks':>6} {'area':>7} {'of frame':>9} {'reaches to':>11}")
+for j in range(NLEV):
+    print(f"{j:5} {len(levels[j]):6} {area[j]:7} {area[j]*100//(W*H):8} % {reach[j]:11.2f}")
+
+tab = struct.pack(">H", NLEV)
+for lv in levels:
+    tab += struct.pack(">H", len(lv))
+    for _, x, y, w, h, ux, uy in lv:
+        assert x % 16 == ux % 16 == 0 and w in (64, 96)   # dissolve.s has a
+                                                          # row per width
+        assert 0 <= x and x + w <= W and 0 <= y and y + h <= H
+        assert 0 <= x + ux and x + ux + w <= W
+        assert 0 <= y + uy and y + uy + h <= H
+        tab += struct.pack(">6h", x // 8, y, w // 8, h, ux // 8, uy)
+    tab += bytes(12 * (MAXBLK - len(lv)))
+assert len(tab) == 2 + NLEV * (2 + MAXBLK * 12), "TABSZ in dissolve.s must match"
 open(OUT, "wb").write(tab)
-print(f"{OUT}: {len(tab)} bytes, {len(blocks)} blocks")
+print(f"{OUT}: {len(tab)} bytes, {NLEV} levels")
+
+
+# One sheet of all six at the top of their own band, to see the coverage walk
+# inward: it is the only view that shows a level whole.
+def sheet():
+    src = sysmod(H, mitre=True).corridor(phase=0.0)
+    out = Image.new("L", (W * 2, H * 3), 0)
+    for j in range(NLEV):
+        amt = (j + 1) * AMTFULL // NLEV - 1
+        out.paste(compose(src, amt).convert("L"), (W * (j % 2), H * (j // 2)))
+    out.save(SHEET)
+    print(f"{SHEET}: written {out.size}")
 
 
 def compose(src, amt):
-    """exactly what the ST does: count and displacement both out of amt"""
+    """exactly what the ST does: the level out of amt, the displacement too"""
     out = src.copy()
-    n = len(blocks) * amt // AMTFULL
-    for _, x, y, w, h, ux, uy in blocks[:n]:
+    if amt == 0:
+        return out
+    for _, x, y, w, h, ux, uy in levels[min(NLEV - 1, NLEV * amt // AMTFULL)]:
         dx = (((ux // 8) * amt // AMTFULL) & ~1) * 8   # as the ST: asr, then
         dy = uy * amt // AMTFULL                       # even bytes
         out.paste(Image.new("1", (w, h), 0), (x, y))
@@ -101,7 +159,7 @@ def run(hits, vbls):
         tgt = max(0, tgt - DECAY)
         amt = min(tgt, amt + ATTACK) if amt < tgt else tgt
         fphase = (fphase + FB_CRUISE) % (NFRAMES * 256)
-        n = len(blocks) * amt // AMTFULL
+        n = 0 if amt == 0 else len(levels[min(NLEV - 1, NLEV * amt // AMTFULL)])
         if n == 0:                          # clean: the frame itself, 2 VBLs
             composing = 0
             if shown != (fphase >> 8, 0):
@@ -140,3 +198,4 @@ for (t, k, amt), nxt in zip(pics, [p[0] for p in pics[1:]] + [VBLS]):
     holds.append(max(14, (nxt - t) * 14))
 shots[0].save(GIF, save_all=True, append_images=shots[1:], duration=holds, loop=0)
 print(f"{GIF}: written, {len(shots)} pictures")
+sheet()

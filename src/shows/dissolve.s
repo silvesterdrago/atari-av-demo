@@ -36,9 +36,11 @@ RANGE_PAGES equ 1
 
 NFRAMES     equ 24              ; must match tools/genflip.py
 FRAMESZ     equ 32000
-NBLK        equ 16              ; must match tools/gendis.py: the table is
-BLKSZ       equ 12              ; read whole, so a count that disagrees with
-TABSZ       equ 2+NBLK*BLKSZ    ; the file is a file we do not know
+NLEV        equ 6               ; all three must match tools/gendis.py: the
+MAXBLK      equ 16              ; table is read whole, so a length that
+BLKSZ       equ 12              ; disagrees is a file we do not know
+LEVSZ       equ 2+MAXBLK*BLKSZ
+TABSZ       equ 2+NLEV*LEVSZ
 
 FB_WRAP     equ NFRAMES*256     ; phase is 8.8 frames, so it wraps exactly
 FB_CRUISE   equ 128             ; one frame every two VBLs when it is clean
@@ -88,11 +90,8 @@ show_init:
     tst.w   d0
     beq     .out
 
-    move.w  tab,d0
-    beq     .out
-    cmp.w   #NBLK,d0            ; a count we would walk off the end of
-    bhi     .out
-    move.w  d0,nblk
+    cmp.w   #NLEV,tab           ; a table that is not the one we were built
+    bne     .out                ; against
     move.w  #1,dis_ready
     move.w  #1,auto_ctr
     move.l  frame0,d0
@@ -145,10 +144,14 @@ load_file:
 show_frame:
     tst.w   dis_ready
     beq     .out
-    if AUTOHIT
-    subq.w  #1,auto_ctr
+    if AUTOHIT                  ; eight hits, then eight rests: the envelope
+    subq.w  #1,auto_ctr         ; climbs through every level and falls back
     bgt.s   .noauto
     move.w  #AUTOHIT,auto_ctr
+    addq.w  #1,auto_n
+    and.w   #15,auto_n
+    cmp.w   #8,auto_n
+    bcc.s   .noauto
     movem.l d0-d1,-(sp)
     move.w  #170,d0
     moveq   #0,d1
@@ -183,20 +186,25 @@ show_frame:
     move.w  d1,d2
 .rise:
     move.w  d2,amt
-    move.w  d2,d1
     beq     .clean
-    mulu    nblk,d1             ; how many blocks are out at this depth
-    lsr.l   #8,d1
-    lsr.l   #4,d1
-    beq     .clean
+    mulu    #NLEV,d2            ; which level of break-up this depth is in.
+    lsr.l   #8,d2               ; Each has its OWN blocks, so crossing into
+    lsr.l   #4,d2               ; one re-deals the picture rather than adding
+    cmp.w   #NLEV,d2            ; to it
+    bcs.s   .lev
+    move.w  #NLEV-1,d2
+.lev:
     tst.w   composing
     bne.s   .step
-    move.w  #1,composing        ; start a picture: which frame, how broken
-    clr.w   copied
-    clr.w   cblk
-    move.w  d1,cn
-    move.w  amt,camt            ; held for the whole picture, so the blocks
-                                ; of one picture agree with each other
+    move.w  #1,composing        ; start a picture: which frame, which level
+    clr.w   copied              ; and how far out. All three are held for the
+    clr.w   cblk                ; whole picture, so its blocks agree with
+    move.w  amt,camt            ; each other
+    mulu    #LEVSZ,d2
+    lea     tab+2,a3
+    add.l   d2,a3
+    move.w  (a3)+,cn
+    move.l  a3,cbase
     lsr.w   #8,d0
     and.l   #$ffff,d0
     mulu    #FRAMESZ,d0
@@ -217,7 +225,7 @@ show_frame:
     bcc.s   .flip
     addq.w  #1,cblk
     mulu    #BLKSZ,d0
-    lea     tab+2,a3
+    move.l  cbase,a3
     add.l   d0,a3
     bsr     apply_block
     dbra    d7,.lp
@@ -385,10 +393,10 @@ work0:          ds.l 1
 work1:          ds.l 1
 back:           ds.l 1
 csrc:           ds.l 1
+cbase:          ds.l 1
 fphase:         ds.w 1
 amt:            ds.w 1
 tgt:            ds.w 1
-nblk:           ds.w 1
 cn:             ds.w 1
 camt:           ds.w 1
 cblk:           ds.w 1
@@ -396,4 +404,5 @@ copied:         ds.w 1
 composing:      ds.w 1
 dis_ready:      ds.w 1
 auto_ctr:       ds.w 1
+auto_n:         ds.w 1
     even

@@ -19,11 +19,13 @@ import math, os, struct, zlib, sys
 # Two sizes. The default is eight cubes in a four-by-two grid; "big" is four
 # in a two-by-two, so each cell is twice as wide and the tile twice as big in
 # both directions -- and the outline goes with it, from a 2x1 brush to a solid
-# 6x6, which is what "thicker" has to mean on a grid with no grey.
+# square of T, which is what "thicker" has to mean on a grid with no grey.
+# T costs nothing either way: the tile is the same size and so is the blit.
 BIG = len(sys.argv) > 1 and sys.argv[1] == "big"
 if BIG:
     W_BYTES, H, OUT, PREVIEW = 24, 160, "src/cubes4.bin", "cubes4_preview.png"
-    BRUSH = [(x - 3, y - 3) for y in range(6) for x in range(6)]
+    T = 5                           # outline thickness in pixels
+    BRUSH = [(x - T // 2, y - T // 2) for y in range(T) for x in range(T)]
 else:
     W_BYTES, H, OUT, PREVIEW = 12, 96, "src/cubes.bin", "cubes_preview.png"
     BRUSH = [(0, 0), (1, 0)]        # 1px vanishes on a CRT

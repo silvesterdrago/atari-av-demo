@@ -82,13 +82,61 @@ def compose(src, amt):
     return out
 
 
-# A picture takes four VBLs while it is breaking, so the flipbook advances
-# about a sixth of a turn between them: this is the real cadence.
+# The preview is a VBL-by-VBL run of what show_frame does -- the envelope and
+# the composition state machine -- so the pictures it holds, and how long it
+# holds each, are the ones the machine produces. All five constants below have
+# to match src/shows/dissolve.s.
+KICK, ATTACK, DECAY = 6, 96, 20
+PERBATCH, COPYSTEPS = 8, 2
+FB_CRUISE, NFRAMES = 128, 24
+
+
+def run(hits, vbls):
+    tgt = amt = fphase = 0
+    composing = copied = cblk = ck = camt = cn = 0
+    shown, out = None, []
+    for t in range(vbls):
+        if t in hits:
+            tgt = min(AMTFULL, tgt + hits[t] * KICK)
+        tgt = max(0, tgt - DECAY)
+        amt = min(tgt, amt + ATTACK) if amt < tgt else tgt
+        fphase = (fphase + FB_CRUISE) % (NFRAMES * 256)
+        n = len(blocks) * amt // AMTFULL
+        if n == 0:                          # clean: the frame itself, 2 VBLs
+            composing = 0
+            if shown != (fphase >> 8, 0):
+                shown = (fphase >> 8, 0)
+                out.append((t, *shown))
+        elif not composing:                 # start one, on this frame and depth
+            composing, copied, cblk = 1, 0, 0
+            ck, camt, cn = fphase >> 8, amt, n
+        elif copied < COPYSTEPS:
+            copied += 1
+        else:
+            cblk += PERBATCH
+            if cblk >= cn:
+                composing = 0
+                shown = (ck, camt)
+                out.append((t, *shown))
+    return out
+
+
+# Six hits about four a second, rising, then silence: the target stacks faster
+# than it sinks, so the break-up climbs -- to about four fifths on this roll --
+# and then subsides.
+VBLS = 330
+hits = {20 + i * 18: v for i, v in enumerate((70, 110, 140, 170, 200, 240))}
+pics = run(hits, VBLS)
+print(f"preview: {len(pics)} pictures over {VBLS} VBLs; "
+      f"depth runs {' '.join(str(a * 100 // AMTFULL) for _, _, a in pics[::5])} %")
+
 s = sysmod(H, mitre=True)
-shots = []
-for i in range(32):
-    ramp = i / 15 if i < 16 else (31 - i) / 15
-    amt = int(AMTFULL * ramp)
-    shots.append(compose(s.corridor(phase=(i / 6) % 1.0), amt).convert("L"))
-shots[0].save(GIF, save_all=True, append_images=shots[1:], duration=56, loop=0)
+cache = {}
+shots, holds = [], []
+for (t, k, amt), nxt in zip(pics, [p[0] for p in pics[1:]] + [VBLS]):
+    if k not in cache:
+        cache[k] = s.corridor(phase=k / NFRAMES)
+    shots.append(compose(cache[k], amt).convert("L"))
+    holds.append(max(14, (nxt - t) * 14))
+shots[0].save(GIF, save_all=True, append_images=shots[1:], duration=holds, loop=0)
 print(f"{GIF}: written, {len(shots)} pictures")

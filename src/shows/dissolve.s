@@ -44,8 +44,14 @@ FB_WRAP     equ NFRAMES*256     ; phase is 8.8 frames, so it wraps exactly
 FB_CRUISE   equ 128             ; one frame every two VBLs when it is clean
 AMTFULL     equ 4096            ; break-up all the way, scaling both the block
                                 ; count and how far each one is displaced
-KICK        equ 16              ; amount per unit of velocity: 255 is full
-DECAY       equ 24              ; a VBL: full mends back in about 2.5 seconds
+; The break-up has to GROW, not arrive. A hit raises a target, the amount
+; climbs toward it at ATTACK a VBL and the target sinks at DECAY -- so one
+; hit swells and subsides, and hits that come faster than the target sinks
+; stack up and carry it further each time. A hard hit is worth about a third
+; of full, so the deep end is reached by playing into it.
+KICK        equ 6               ; target per unit of velocity
+ATTACK      equ 96              ; a VBL: full break-up grows in about 0.6s
+DECAY       equ 20              ; a VBL: and sinks back in about 2.9s
 COPYCH      equ 16000           ; bytes of frame a VBL, so two VBLs a copy
 PERBATCH    equ 8               ; blocks a VBL
     ifnd AUTOHIT                    ; -DAUTOHIT=<frames> hits by itself, so the
@@ -159,13 +165,26 @@ show_frame:
 .ok:
     move.w  d0,fphase
 
-    move.w  amt,d1              ; the break-up mends by itself
-    beq     .clean
+    move.w  tgt,d1              ; the target sinks on its own
+    beq.s   .notgt
     sub.w   #DECAY,d1
-    bcc.s   .st
+    bcc.s   .tg
     moveq   #0,d1
-.st:
-    move.w  d1,amt
+.tg:
+    move.w  d1,tgt
+.notgt:
+    move.w  amt,d2              ; and the amount climbs toward it
+    cmp.w   d1,d2
+    bcc.s   .fall
+    add.w   #ATTACK,d2
+    cmp.w   d1,d2
+    bls.s   .rise
+.fall:
+    move.w  d1,d2
+.rise:
+    move.w  d2,amt
+    move.w  d2,d1
+    beq     .clean
     mulu    nblk,d1             ; how many blocks are out at this depth
     lsr.l   #8,d1
     lsr.l   #4,d1
@@ -230,15 +249,15 @@ show_note_on:                   ; d0 = strength, d1 = pad*2
     movem.l d0-d1,-(sp)
     tst.w   dis_ready
     beq.s   .out
-    mulu    #KICK,d0
-    add.w   amt,d0
+    mulu    #KICK,d0            ; a hit raises the target, never the amount:
+    add.w   tgt,d0              ; what the picture does is climb toward it
     bcs.s   .max                ; past full either way
     cmp.w   #AMTFULL,d0
     bls.s   .set
 .max:
     move.w  #AMTFULL,d0
 .set:
-    move.w  d0,amt
+    move.w  d0,tgt
 .out:
     movem.l (sp)+,d0-d1
     rts
@@ -368,6 +387,7 @@ back:           ds.l 1
 csrc:           ds.l 1
 fphase:         ds.w 1
 amt:            ds.w 1
+tgt:            ds.w 1
 nblk:           ds.w 1
 cn:             ds.w 1
 camt:           ds.w 1

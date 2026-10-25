@@ -37,7 +37,8 @@ MIDIOPTS := --midi-in $(FIFO) --midi-out /dev/null
 # Each source in src/shows/ is one idea and builds its own binary on top of
 # src/core/. dist/NOISEAV.TOS is the older all-in-one show and is left alone.
 SHOW_SRCS := $(wildcard src/shows/*.s)
-SHOW_DEPS := src/core/head.s src/core/tail.s src/shows/flipbook.inc
+SHOW_DEPS := src/core/head.s src/core/tail.s src/shows/flipbook.inc \
+              src/shows/dissolve.inc
 SHOW_BINS :=
 
 define SHOW_RULE
@@ -121,6 +122,12 @@ dist/SHAPES.TOS:   src/shapes.bin
 dist/VECTORS.TOS:  src/vectors.bin
 
 # Every scene in one binary, switched on the number keys.
+# The five flipbooks in one binary, sharing a 750 KB buffer: the switch has
+# to read the whole scene off the card, which is the point of it.
+dist/CORRSET.TOS: src/corrset.s $(SHOW_DEPS) dist/CORRIDOR.DAT dist/TUNNEL.DAT \
+                  dist/WAVE.DAT dist/DESYNC.DAT dist/DRIFT.DAT | $(VASM) dist
+	$(VASM) -Ftos -quiet -o $@ $<
+
 MULTI := dist/MULTI.TOS
 $(MULTI): src/multi.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
           src/solids.bin src/big.bin | $(VASM) dist

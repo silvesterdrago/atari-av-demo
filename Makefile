@@ -69,6 +69,7 @@ dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
 dist/VIEWER.TOS:   dist/TEST.DAT
 dist/CORRIDOR.TOS: dist/CORRIDOR.DAT
+dist/CUBES4.TOS:   src/cubes4.bin
 dist/TUNNEL.TOS:   dist/TUNNEL.DAT
 dist/WAVE.TOS:     dist/WAVE.DAT
 dist/DESYNC.TOS:   dist/DESYNC.DAT
@@ -171,6 +172,8 @@ $(TARGET): src/main.s src/cubes.bin | $(VASM) dist
 # Wireframe cube frames, baked offline -- see the header of gencubes.py
 src/cubes.bin: tools/gencubes.py
 	python3 tools/gencubes.py
+src/cubes4.bin: tools/gencubes.py
+	python3 tools/gencubes.py big
 
 dist:
 	@mkdir -p dist
@@ -234,7 +237,7 @@ diag: | $(VASM)
 
 clean:
 	rm -rf dist dist-*
-	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png
+	rm -f $(BRIDGE) src/cubes.bin cubes_preview.png src/cubes4.bin cubes4_preview.png
 	rm -f src/big.bin src/grid.bin grid_preview.png grid_preview_sparse.png
 	rm -f src/hyper.bin src/hyper10.bin hyper_preview.png
 	rm -f src/test.bin test_preview.png src/half.bin half_preview.png

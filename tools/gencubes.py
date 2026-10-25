@@ -16,13 +16,20 @@ Output layout, tightly packed:
 """
 import math, os, struct, zlib, sys
 
-W_BYTES = 12            # 96 px
+# Two sizes. The default is eight cubes in a four-by-two grid; "big" is four
+# in a two-by-two, so each cell is twice as wide and the tile twice as big in
+# both directions -- and the outline goes with it, from a 2x1 brush to a solid
+# 6x6, which is what "thicker" has to mean on a grid with no grey.
+BIG = len(sys.argv) > 1 and sys.argv[1] == "big"
+if BIG:
+    W_BYTES, H, OUT, PREVIEW = 24, 160, "src/cubes4.bin", "cubes4_preview.png"
+    BRUSH = [(x - 3, y - 3) for y in range(6) for x in range(6)]
+else:
+    W_BYTES, H, OUT, PREVIEW = 12, 96, "src/cubes.bin", "cubes_preview.png"
+    BRUSH = [(0, 0), (1, 0)]        # 1px vanishes on a CRT
 W       = W_BYTES * 8
-H       = 96
 SCALES  = 8
 ANGLES  = 16
-OUT     = "src/cubes.bin"
-PREVIEW = "cubes_preview.png"
 
 VERTS = [(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
 def vidx(x, y, z): return VERTS.index((x, y, z))
@@ -57,8 +64,8 @@ def line(buf, x0, y0, x1, y1):
     sy = 1 if y0 < y1 else -1
     err = dx + dy
     while True:
-        plot(buf, x0, y0)
-        plot(buf, x0 + 1, y0)                 # 2px wide: 1px vanishes on a CRT
+        for bx, by in BRUSH:
+            plot(buf, x0 + bx, y0 + by)
         if x0 == x1 and y0 == y1: break
         e2 = 2 * err
         if e2 >= dy: err += dy; x0 += sx

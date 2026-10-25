@@ -36,15 +36,16 @@ RANGE_PAGES equ 1
 
 NFRAMES     equ 24              ; must match tools/genflip.py
 FRAMESZ     equ 32000
-NBLK        equ 60              ; must match tools/gendis.py: the table is
-BLKSZ       equ 14              ; read whole, so a count that disagrees with
+NBLK        equ 16              ; must match tools/gendis.py: the table is
+BLKSZ       equ 12              ; read whole, so a count that disagrees with
 TABSZ       equ 2+NBLK*BLKSZ    ; the file is a file we do not know
 
 FB_WRAP     equ NFRAMES*256     ; phase is 8.8 frames, so it wraps exactly
 FB_CRUISE   equ 128             ; one frame every two VBLs when it is clean
-BLKCAP      equ 40              ; blocks at most, which is 7 VBLs a picture
-KICK        equ 40              ; blocks per unit of velocity, in 8.8
-DECAY       equ 48              ; 8.8 a VBL: the cap mends in about 3 seconds
+AMTFULL     equ 4096            ; break-up all the way, scaling both the block
+                                ; count and how far each one is displaced
+KICK        equ 16              ; amount per unit of velocity: 255 is full
+DECAY       equ 24              ; a VBL: full mends back in about 2.5 seconds
 COPYCH      equ 16000           ; bytes of frame a VBL, so two VBLs a copy
 PERBATCH    equ 8               ; blocks a VBL
     ifnd AUTOHIT                    ; -DAUTOHIT=<frames> hits by itself, so the
@@ -165,22 +166,18 @@ show_frame:
     moveq   #0,d1
 .st:
     move.w  d1,amt
-    lsr.w   #8,d1
+    mulu    nblk,d1             ; how many blocks are out at this depth
+    lsr.l   #8,d1
+    lsr.l   #4,d1
     beq     .clean
-    cmp.w   #BLKCAP,d1
-    bls.s   .cap
-    move.w  #BLKCAP,d1
-.cap:
-    cmp.w   nblk,d1
-    bls.s   .have
-    move.w  nblk,d1
-.have:
     tst.w   composing
     bne.s   .step
     move.w  #1,composing        ; start a picture: which frame, how broken
     clr.w   copied
     clr.w   cblk
     move.w  d1,cn
+    move.w  amt,camt            ; held for the whole picture, so the blocks
+                                ; of one picture agree with each other
     lsr.w   #8,d0
     and.l   #$ffff,d0
     mulu    #FRAMESZ,d0
@@ -235,11 +232,11 @@ show_note_on:                   ; d0 = strength, d1 = pad*2
     beq.s   .out
     mulu    #KICK,d0
     add.w   amt,d0
-    bcs.s   .max                ; 8.8 overflowed, so it is past the cap anyway
-    cmp.w   #BLKCAP*256,d0
+    bcs.s   .max                ; past full either way
+    cmp.w   #AMTFULL,d0
     bls.s   .set
 .max:
-    move.w  #BLKCAP*256,d0
+    move.w  #AMTFULL,d0
 .set:
     move.w  d0,amt
 .out:
@@ -275,8 +272,16 @@ copy_chunk:                     ; one slice of the frame into the back buffer
 ;----------------------------------------------------------------------
 apply_block:
     movem.l d0-d7/a0-a2,-(sp)
-    movem.w (a3)+,d0-d6         ; xb y wb h dxb dy keep
-    move.w  d6,d7
+    movem.w (a3)+,d0-d5         ; xb y wb h uxb uy, the last two at full
+    move.w  camt,d6             ; break-up; scale them by how deep it is now
+    muls    d6,d4
+    asr.l   #8,d4
+    asr.l   #4,d4
+    and.w   #$fffe,d4           ; even bytes, so both ends stay word-aligned
+    move.w  camt,d6
+    muls    d6,d5
+    asr.l   #8,d5
+    asr.l   #4,d5
     move.l  d1,d6
     mulu    #80,d6
     move.l  back,a0
@@ -292,39 +297,49 @@ apply_block:
     move.l  back,a2
     add.l   d6,a2
     add.w   d0,a2               ; where it lands
-    move.w  d2,d4
-    lsr.w   #2,d4
-    subq.w  #1,d4               ; longs a row, less one
     move.w  d3,d5
     subq.w  #1,d5               ; rows, less one
     move.w  d5,d3
     moveq   #0,d0
-.brow:
-    move.w  d4,d1
-    move.l  a0,d6
-.bl:
-    move.l  d0,(a0)+
-    dbra    d1,.bl
-    move.l  d6,a0
-    add.w   #80,a0
-    dbra    d5,.brow
+    move.w  #80,d7              ; a row ends where the next one starts, less
+    sub.w   d2,d7               ; this
 
-    tst.w   d7
-    beq.s   .done
-    move.w  d3,d5
-.crow:
-    move.w  d4,d1
-    move.l  a1,d6
-    move.l  a2,d2
-.cl:
+; A row is two or three longs, and a dbra counting them costs 10 cycles
+; against the move's 12 -- near half the row. There are only the two
+; widths, so each one gets its row straight.
+    cmp.w   #8,d2
+    bne.s   .b12
+.b8:
+    move.l  d0,(a0)+
+    move.l  d0,(a0)+
+    add.w   d7,a0
+    dbra    d5,.b8
+    bra.s   .blanked
+.b12:
+    move.l  d0,(a0)+
+    move.l  d0,(a0)+
+    move.l  d0,(a0)+
+    add.w   d7,a0
+    dbra    d5,.b12
+.blanked:
+    move.w  d3,d5               ; the tile always lands: the blank it left is
+    cmp.w   #8,d2               ; the black gap, so nothing is ever removed
+    bne.s   .c12
+.c8:
     move.l  (a1)+,(a2)+
-    dbra    d1,.cl
-    move.l  d6,a1
-    add.w   #80,a1
-    move.l  d2,a2
-    add.w   #80,a2
-    dbra    d5,.crow
-.done:
+    move.l  (a1)+,(a2)+
+    add.w   d7,a1
+    add.w   d7,a2
+    dbra    d5,.c8
+    bra.s   .laid
+.c12:
+    move.l  (a1)+,(a2)+
+    move.l  (a1)+,(a2)+
+    move.l  (a1)+,(a2)+
+    add.w   d7,a1
+    add.w   d7,a2
+    dbra    d5,.c12
+.laid:
     movem.l (sp)+,d0-d7/a0-a2
     rts
 
@@ -355,6 +370,7 @@ fphase:         ds.w 1
 amt:            ds.w 1
 nblk:           ds.w 1
 cn:             ds.w 1
+camt:           ds.w 1
 cblk:           ds.w 1
 copied:         ds.w 1
 composing:      ds.w 1

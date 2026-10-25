@@ -14,34 +14,45 @@ the ST draws nothing at all.
 own binary. The file is NFRAMES screens of 32000 bytes, ST mono: 80 bytes a
 row, MSB leftmost, a set bit is ink.
 """
+import math
 import sys
 from PIL import Image
 from sysload import H, W, pack, sysmod
 
 NFRAMES = 24            # must match src/shows/flipbook.inc
 
-# t is the tunnel side bar's thickness at z=1, which sets the axial length of
-# the band every frame is cut from: 28 runs the top and bottom bars of the six
-# visible frames over 19, 10, 5, 3, 3, 3 pixels.
-# amp scales with the row spacing: their grid is 640x360, ours 400 rows, so
-# 52 * 400/360 keeps the waves the same size relative to the gaps they ride in.
-SCENES = {"corr": ("corridor", {}),
-          "tun":  ("tunnel", {"t": 28}),
-          "wave": ("wave", {"amp": 58})}
+# Each scene is one turn of phase. Notes on the arguments:
+#  tun   t is the side bar's thickness at z=1, which sets the axial length of
+#        the band every frame is cut from: 28 runs the top and bottom bars of
+#        the six visible frames over 19, 10, 5, 3, 3, 3 pixels.
+#  wave  amp scales with the row spacing -- their grid is 640x360, ours 400
+#        rows, so 52 * 400/360 keeps the waves the same size relative to the
+#        gaps they ride in.
+#  desy  dy likewise: the two halves are 16 rows out of step, not 14.
+#  drift their axis_loss holds the vanishing point at a FIXED offset, but the
+#        loop it came from sweeps it. A full sine over the turn sweeps it out
+#        to one side and back through the other, and closes on itself.
+SCENES = {"corr":  lambda s, p: s.corridor(phase=p),
+          "tun":   lambda s, p: s.tunnel(phase=p, t=28),
+          "wave":  lambda s, p: s.wave(phase=p, amp=58),
+          "desy":  lambda s, p: s.desync(phase=p, dy=16),
+          "drift": lambda s, p: s.axis_loss(phase=p,
+                                            dx=round(170 * math.sin(2 * math.pi * p)),
+                                            dy=round(-60 * math.sin(2 * math.pi * p)))}
 
 name = sys.argv[1] if len(sys.argv) > 1 else ""
 if name not in SCENES:
     sys.exit(f"usage: genflip.py [{'|'.join(SCENES)}]")
-fn, kw = SCENES[name]
+fn = SCENES[name]
 
 s = sysmod(H, mitre=True)
-frames = [getattr(s, fn)(phase=i / NFRAMES, **kw) for i in range(NFRAMES)]
-assert frames[0].tobytes() == getattr(s, fn)(phase=1.0, **kw).tobytes(), \
-    f"{fn} is not periodic in phase: the loop would jump"
+frames = [fn(s, i / NFRAMES) for i in range(NFRAMES)]
+assert frames[0].tobytes() == fn(s, 1.0).tobytes(), \
+    f"{name} is not periodic in phase: the loop would jump"
 
 out = f"src/{name}.bin"
 open(out, "wb").write(b"".join(pack(im) for im in frames))
-print(f"{out}: {NFRAMES * 32000} bytes, {NFRAMES} frames of {fn}")
+print(f"{out}: {NFRAMES * 32000} bytes, {NFRAMES} frames of {name}")
 
 cols = 4
 rows = (NFRAMES + cols - 1) // cols

@@ -70,7 +70,7 @@ dist/VIEWER.TOS:   dist/TEST.DAT
 dist/CORRIDOR.TOS: dist/CORRIDOR.DAT
 dist/TUNNEL.TOS:   dist/TUNNEL.DAT
 dist/WAVE.TOS:     dist/WAVE.DAT
-dist/DISSOLVE.TOS: dist/DISSOLVE.DAT
+dist/DISSOLVE.TOS: dist/DISSOLVE.DAT dist/CORRIDOR.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every

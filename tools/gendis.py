@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The source screen and the block table DISSOLVE eats through, live on the ST.
+"""The block table DISSOLVE breaks its picture with, live on the ST.
 
     python3 tools/gendis.py     # writes src/dis.bin + dis_preview.gif
 
@@ -18,15 +18,17 @@ free, since a row is just a different address.
 Blocks are ordered outside in, so consuming them in order IS the break-up
 spreading from the edges -- what their `dist` test does with probability.
 
-    0      source screen, 32000 bytes, ST mono
-    32000  nblk.w, then nblk x {xb y wb h dxb dy keep} as words
-           xb, wb, dxb in BYTES; y, h, dy in rows
+The frames it breaks are the corridor's own, so the scene reads CORRIDOR.DAT
+for them and this file carries nothing but the table.
+
+    0  nblk.w, then nblk x {xb y wb h dxb dy keep} as words
+       xb, wb, dxb in BYTES; y, h, dy in rows
 """
 import math
 import random
 import struct
 from PIL import Image
-from sysload import H, W, pack, sysmod
+from sysload import H, W, sysmod
 
 NBLK = 60
 OUT = "src/dis.bin"
@@ -60,8 +62,9 @@ for _, x, y, w, h, dx, dy, keep in blocks:
     assert 0 <= y + dy and y + dy + h <= H
     tab += struct.pack(">7h", x // 8, y, w // 8, h, dx // 8, dy, int(keep))
 
-open(OUT, "wb").write(pack(src) + tab)
-print(f"{OUT}: {32000 + len(tab)} bytes, {len(blocks)} blocks")
+assert len(tab) == 2 + NBLK * 14, "TABSZ in src/shows/dissolve.s must match"
+open(OUT, "wb").write(tab)
+print(f"{OUT}: {len(tab)} bytes, {len(blocks)} blocks")
 
 # Walk the table the way the ST will, so the preview is the real sequence
 out = src.copy()

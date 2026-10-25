@@ -24,7 +24,7 @@ import math, os, struct, zlib, sys
 BIG = len(sys.argv) > 1 and sys.argv[1] == "big"
 if BIG:
     W_BYTES, H, OUT, PREVIEW = 24, 160, "src/cubes4.bin", "cubes4_preview.png"
-    T = 5                           # outline thickness in pixels
+    T = 4                           # outline thickness in pixels
     BRUSH = [(x - T // 2, y - T // 2) for y in range(T) for x in range(T)]
 else:
     W_BYTES, H, OUT, PREVIEW = 12, 96, "src/cubes.bin", "cubes_preview.png"

@@ -20,7 +20,10 @@
 ;  done to it changes. That is what makes 1 <-> 4 <-> 5 worth watching,
 ;  since all three are the same corridor.
 ;
-;  With -DDIAG=1 bar three carries how many VBLs the last read took.
+;  The read runs a chunk a frame rather than in one call, so the machine
+;  stays alive through it: the new scene arrives over the old one a strip
+;  at a time and the show never stops. With -DDIAG=1 bar three carries how
+;  many VBLs the whole read took.
 ;  -DCYCLE=<frames> switches on its own, for measuring without a
 ;  keyboard.
 ;
@@ -41,6 +44,9 @@ FB_CRUISE   equ 128             ; one frame every two VBLs
 FB_KICK     equ 4
 FB_MAX      equ 1024
 FB_SLOW     equ 16
+    ifnd LOADCH                 ; bytes of scene a frame: 8 KB is about 22 ms
+LOADCH      equ 8192            ; on a 375 KB/s card, so the show barely feels
+    endif                       ; it. -DLOADCH=<bytes> to try another size
 
 ;----------------------------------------------------------------------
 show_init:
@@ -72,11 +78,11 @@ scene_select:
     move.l  0(a0,d0.w),a1
     cmp.l   buf_file,a1         ; the same frames as the scene we are leaving
     beq     .entered            ; (1 and 6), so there is nothing to read
-    clr.w   fb_ready            ; the buffer is about to stop being a scene
+
+    bsr     load_abort          ; a key pressed mid-read drops that read
     move.w  #-1,cur_scene
     clr.l   buf_file
-    move.l  VBCLOCK,d5
-    move.l  a1,d6               ; GEMDOS keeps d3-d7, and nothing else
+    move.l  a1,d6
 
     clr.w   -(sp)               ; Fopen, read only
     move.l  a1,-(sp)
@@ -85,28 +91,13 @@ scene_select:
     lea     8(sp),sp
     tst.l   d0
     bmi.s   .out
-    move.w  d0,d3               ; the handle, past the next trap
-
-    move.l  frame0,-(sp)        ; Fread: the whole file, in one go
-    move.l  #SETSZ,-(sp)
-    move.w  d3,-(sp)
-    move.w  #GD_FREAD,-(sp)
-    trap    #1
-    lea     12(sp),sp
-    move.l  d0,d2
-
-    move.w  d3,-(sp)
-    move.w  #GD_FCLOSE,-(sp)
-    trap    #1
-    addq.l  #4,sp
-
-    move.l  VBCLOCK,d0          ; how long the card took, in frames
-    sub.l   d5,d0
-    add.w   d0,show_ctr         ; bar three, with -DDIAG=1
-
-    cmp.l   #SETSZ,d2
-    bne.s   .out                ; a short read is not our file
-    move.l  d6,buf_file
+    move.w  d0,ld_handle        ; the read now runs a chunk a frame
+    move.l  d6,ld_file
+    move.w  d4,ld_scene
+    clr.l   ld_done
+    move.l  VBCLOCK,ld_start
+    move.w  #1,loading
+    bra.s   .out
 .entered:
     move.w  d4,cur_scene
     move.w  #1,fb_ready
@@ -118,7 +109,74 @@ scene_select:
     rts
 
 ;----------------------------------------------------------------------
+; Close a read that is still running, without taking its scene.
+;----------------------------------------------------------------------
+load_abort:
+    tst.w   loading
+    beq.s   .no
+    clr.w   loading
+    move.w  ld_handle,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
+.no:
+    rts
+
+;----------------------------------------------------------------------
+; One chunk of the scene being read, once a frame. Reading the whole 750
+; KB in a single call holds the machine for the card's entire transfer --
+; two seconds on an ACSI card, and nothing runs, not even MIDI. A chunk a
+; frame costs the same total and leaves the show alive: the new scene
+; simply arrives over the old one, a strip at a time, and that sweep is
+; the transfer made visible.
+;----------------------------------------------------------------------
+load_step:
+    movem.l d0-d3/a0,-(sp)
+    move.l  ld_done,d3
+    move.l  frame0,a0
+    add.l   d3,a0
+    move.l  #SETSZ,d2
+    sub.l   d3,d2
+    cmp.l   #LOADCH,d2
+    bls.s   .last
+    move.l  #LOADCH,d2
+.last:
+    move.l  a0,-(sp)            ; Fread into where we left off
+    move.l  d2,-(sp)
+    move.w  ld_handle,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    cmp.l   d2,d0
+    bne.s   .short              ; a chunk that came up short is not our file
+    add.l   d2,d3
+    move.l  d3,ld_done
+    cmp.l   #SETSZ,d3
+    bcs.s   .out
+    bsr     load_abort          ; done: close it and take the scene
+    move.l  VBCLOCK,d0
+    sub.l   ld_start,d0
+    add.w   d0,show_ctr         ; bar three, with -DDIAG=1: VBLs the card took
+    move.l  ld_file,buf_file
+    move.w  ld_scene,d0
+    move.w  d0,cur_scene
+    move.w  #1,fb_ready
+    cmp.w   #DIS,d0
+    bne.s   .out
+    bsr     dis_init
+    bra.s   .out
+.short:
+    bsr     load_abort
+.out:
+    movem.l (sp)+,d0-d3/a0
+    rts
+
+;----------------------------------------------------------------------
 show_frame:
+    tst.w   loading             ; a scene on its way in, a chunk a frame
+    beq.s   .noload
+    bsr     load_step
+.noload:
     ifd CYCLE
     addq.w  #1,cyc_ctr
     cmp.w   #CYCLE,cyc_ctr
@@ -212,6 +270,12 @@ fphase:         ds.w 1
 fspeed:         ds.w 1
 cur_scene:      ds.w 1
 buf_file:       ds.l 1          ; which .DAT the buffer holds, not which scene
+ld_file:        ds.l 1
+ld_done:        ds.l 1
+ld_start:       ds.l 1
+ld_handle:      ds.w 1
+ld_scene:       ds.w 1
+loading:        ds.w 1
 fb_ready:       ds.w 1
     ifd CYCLE
 cyc_ctr:        ds.w 1

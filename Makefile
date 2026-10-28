@@ -64,6 +64,12 @@ src/shapes.bin: tools/genshapes.py
 	python3 tools/genshapes.py
 src/vectors.bin: tools/genvectors.py
 	python3 tools/genvectors.py
+src/plasma.inc: tools/genplasma.py
+	python3 tools/genplasma.py
+src/shuriken.inc: tools/genshuriken.py
+	python3 tools/genshuriken.py
+src/tetrapod.inc: tools/gentetrapod.py
+	python3 tools/gentetrapod.py
 
 dist/MONOLITH.TOS: src/big.bin
 dist/GRID.TOS:     src/grid.bin
@@ -121,6 +127,9 @@ dist/HALFTONE.TOS: src/half.bin src/shows/halftone_blit.inc
 dist/SOLIDS.TOS:   src/solids.bin
 dist/SHAPES.TOS:   src/shapes.bin
 dist/VECTORS.TOS:  src/vectors.bin
+dist/PLASMA.TOS:   src/plasma.inc
+dist/SHURIKEN.TOS: src/shuriken.inc
+dist/TETRAPOD.TOS: src/tetrapod.inc
 
 # Every scene in one binary, switched on the number keys.
 # The five flipbooks in one binary, sharing a 750 KB buffer: the switch has
@@ -241,7 +250,7 @@ clean:
 	rm -f src/big.bin src/grid.bin grid_preview.png grid_preview_sparse.png
 	rm -f src/hyper.bin src/hyper10.bin hyper_preview.png
 	rm -f src/test.bin test_preview.png src/half.bin half_preview.png
-	rm -f src/solids.bin src/shapes.bin src/vectors.bin
+	rm -f src/solids.bin src/shapes.bin src/vectors.bin src/plasma.inc plasma_preview.png src/shuriken.inc src/tetrapod.inc tetrapod_preview.png
 
 distclean: clean
 	rm -rf tools/vasm tools/vlink tools/*.tar.gz tools/hatari-pm-build

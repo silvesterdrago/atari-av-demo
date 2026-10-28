@@ -2,7 +2,13 @@
 ;  LINE -- act II, the line opening out.
 ;
 ;      thin cross -> bold cross -> wedges -> bold X -> horizontals ->
-;      verticals -> back
+;      nothing -> verticals -> back
+;
+;  The beat of nothing between the two stripe fields is deliberate. Each
+;  stripe standing up where it stands crosses the others on the way, and
+;  eight of them crossing came out as a staircase; collapsing them to the
+;  centre and growing the next field out of it says the same thing in the
+;  act's own grammar.
 ;
 ;  Act I only needed rectangles. This act needs the cross to fall open
 ;  into an X, so the primitive is a TRAPEZOID: each slot is two points at
@@ -24,7 +30,7 @@ RANGE_PAGES equ 131             ; two whole screens to flip between
 NSLOT       equ 8
 NWORD       equ 6               ; x0top, x1top, x0bot, x1bot, y0, y1
 STATESZ     equ NSLOT*NWORD*2
-NSTATE      equ 7               ; the last is the first again, so it loops
+NSTATE      equ 8               ; the last is the first again, so it loops
 HOLD        equ 70
 MORPH        equ 130
 
@@ -565,6 +571,17 @@ keys:
     dc.w      0,640,  0,640,256,278
     dc.w      0,640,  0,640,304,326
     dc.w      0,640,  0,640,352,374
+    ; through the centre: the horizontals collapse to nothing and the
+    ; verticals grow back out of it, rather than each stripe standing up
+    ; where it is and the eight of them crossing into a staircase
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
+    dc.w    320,320,320,320,200,200
     ; verticals
     dc.w     24, 60, 24, 60,  0,400
     dc.w    100,136,100,136,  0,400

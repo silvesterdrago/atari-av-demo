@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Bake a tetrapod for the shuriken engine: four closed frustums, flat shaded.
+
+Four legs along the tetrahedral directions, each a six-sided frustum from a
+base ring at the centre to a narrower tip ring, closed at both ends by flat
+hexagons, so the union is four convex solids and painter's order by face
+depth has nothing to see through. Sides are quads and ends hexagons: the
+show's filler takes any convex polygon, and a hexagon is one polygon's worth
+of scanlines where six triangles were four times that. Coordinates are 16x the shuriken's (+-64 instead of +-4) and the
+show moves the eye out to 16000 to match, which keeps the demo's word-sized
+matrix products in range while the frustum rings get real resolution.
+
+Each face carries its outward normal, +-127, so the show can cull by the
+rotated normal's z, and shade by it: 16 levels of a 4x4 Bayer dither, one word per
+row of the matrix, picked in the span filler by bits 4-5 of the row pointer
+(y*80 carries y & 3 there).
+
+    python3 tools/gentetrapod.py    # writes src/tetrapod.inc + tetrapod_preview.png
+
+Emits:
+    tp_verts    NVERT x (x,y,z) words
+    tp_faces    NPOLY records: n, k0*4, k1*4 (opposite vertices, for the
+                depth key), nx, ny, nz, then n indices*4
+    tp_pats     16 x 4 pattern words, one per y & 3
+    costab/sintab   512 steps, int(256*cos) clamped to +-255, the demo's tables
+    span_tbl    2048 x jmp, then the routines: edge words AND d2 with the mask
+                through d4 (free after the jump), full words store d2
+"""
+import math
+
+OUT     = "src/tetrapod.inc"
+PREVIEW = "tetrapod_preview.png"
+
+SIDES   = 6
+R_BASE  = 24.0
+R_TIP   = 13.0
+LENGTH  = 62.0
+AXES = [(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)]
+
+
+def norm(v):
+    l = math.sqrt(sum(c * c for c in v))
+    return tuple(c / l for c in v)
+
+
+def cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def build():
+    """Vertices and convex polygons: six quads and two hexagons a leg."""
+    verts, faces = [], []
+    for axis in AXES:
+        a = norm(axis)
+        t = (0, 0, 1) if abs(a[2]) < 0.9 else (1, 0, 0)
+        u = norm(cross(a, t))
+        v = cross(a, u)
+        base0, tip0 = len(verts), len(verts) + SIDES
+        for r, d in ((R_BASE, 0.0), (R_TIP, LENGTH)):
+            for i in range(SIDES):
+                ang = 2 * math.pi * i / SIDES
+                verts.append(tuple(a[k] * d + r * (math.cos(ang) * u[k] + math.sin(ang) * v[k]) for k in range(3)))
+        for i in range(SIDES):
+            j = (i + 1) % SIDES
+            faces.append((base0 + i, tip0 + i, tip0 + j, base0 + j))
+        faces.append(tuple(tip0 + i for i in range(SIDES)))
+        faces.append(tuple(base0 + i for i in range(SIDES)))
+    return verts, faces
+
+
+def face_normal(verts, f):
+    p0, p1, p2 = (verts[i] for i in f[:3])
+    e1 = tuple(p1[k] - p0[k] for k in range(3))
+    e2 = tuple(p2[k] - p0[k] for k in range(3))
+    n = cross(e1, e2)
+    c = tuple((p0[k] + p1[k] + p2[k]) / 3 for k in range(3))
+    # outward: away from the leg's axis line through the centre; for every face
+    # of a frustum that is the same as away from the frustum's own centroid
+    n = norm(n)
+    return n
+
+
+def fix_winding(verts, faces):
+    """Make every triangle's normal point away from its leg's centroid."""
+    out = []
+    per_leg = len(faces) // len(AXES)
+    for li, axis in enumerate(AXES):
+        a = norm(axis)
+        legc = tuple(a[k] * LENGTH / 2 for k in range(3))
+        for f in faces[li * per_leg:(li + 1) * per_leg]:
+            n = face_normal(verts, f)
+            c = tuple(sum(verts[i][k] for i in f) / len(f) for k in range(3))
+            if sum((c[k] - legc[k]) * n[k] for k in range(3)) < 0:
+                f = tuple(reversed(f))
+            out.append(f)
+    return out
+
+
+def dither():
+    """16 levels of a 4x4 Bayer dither, four row words each (one per y & 3)."""
+    bayer = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+    pats = []
+    for level in range(16):
+        words = []
+        for row in bayer:
+            nib = 0
+            for c, t in enumerate(row):
+                if t < level:
+                    nib |= 8 >> c
+            words.append(nib * 0x1111)
+        pats.append(tuple(words))
+    pats[15] = (0xffff,) * 4
+    return pats
+
+
+def span(sh, ln):
+    end = sh + ln
+    ins = []
+    pos = 0
+    while pos < end:
+        lo, hi = max(pos, sh), min(pos + 16, end)
+        last = hi == end
+        dst = "(a5)" if last else "(a5)+"
+        if lo == pos and hi == pos + 16:
+            ins.append(f"    move.w  d2,{dst}")
+        else:
+            mask = ((0xffff >> (lo - pos)) & (0xffff << (pos + 16 - hi))) & 0xffff
+            ins += ["    move.w  d2,d4", f"    and.w   #${mask:04x},d4", f"    or.w    d4,{dst}"]
+        pos += 16
+    ins.append("    rts")
+    return ins
+
+
+def emit(verts, faces):
+    out = ["; generated by tools/gentetrapod.py -- do not edit", "",
+           "    section text", "    even",
+           "; span_tbl: jmp span_<sh>_<len>.l + pad, 8 bytes an entry", "span_tbl:"]
+    for sh in range(16):
+        for ln in range(128):
+            out.append(f"    jmp     span_{sh}_{ln}.l")
+            out.append("    dc.w    0")
+    for sh in range(16):
+        for ln in range(128):
+            out.append(f"span_{sh}_{ln}:")
+            out += span(sh, ln)
+    out += ["", "    section data", "    even",
+            f"TP_NVERT    equ {len(verts)}", f"TP_NPOLY    equ {len(faces)}", "tp_verts:"]
+    out += [f"    dc.w    {int(round(x))},{int(round(y))},{int(round(z))}" for x, y, z in verts]
+    out.append("; polygon: n, two opposite indices*4 for the depth key, normal, n indices*4")
+    out.append("tp_faces:")
+    for f in faces:
+        n = face_normal(verts, f)
+        half = len(f) // 2
+        out.append(f"    dc.w    {len(f)},{f[0]*4},{f[half]*4},"
+                   + ",".join(str(int(round(c * 127))) for c in n) + ","
+                   + ",".join(str(i * 4) for i in f))
+    out.append("tp_pats:")
+    out += ["    dc.w    " + ",".join(f"${w:04x}" for w in p) for p in dither()]
+    for name, fn in (("costab", math.cos), ("sintab", math.sin)):
+        tab = [max(-255, min(255, int(256 * fn(2 * math.pi * i / 512)))) for i in range(512)]
+        out.append(f"{name}:")
+        out += ["    dc.w    " + ",".join(str(v) for v in tab[i:i + 16]) for i in range(0, 512, 16)]
+    out.append("")
+    open(OUT, "w").write("\n".join(out))
+
+
+def preview(verts, faces):
+    """A float rendering at one angle, painter's order, to eyeball the mesh."""
+    from PIL import Image, ImageDraw
+    import math as m
+    ax, ay = 0.6, 0.9
+    def rot(p):
+        x, y, z = p
+        y, z = y * m.cos(ax) - z * m.sin(ax), y * m.sin(ax) + z * m.cos(ax)
+        x, z = x * m.cos(ay) - z * m.sin(ay), x * m.sin(ay) + z * m.cos(ay)
+        return (x, y, z)
+    rv = [rot(p) for p in verts]
+    img = Image.new("L", (640, 400), 0)
+    d = ImageDraw.Draw(img)
+    order = sorted(range(len(faces)), key=lambda i: sum(rv[k][2] for k in faces[i]))
+    for i in order:
+        f = faces[i]
+        n = rot(face_normal(verts, f))
+        if n[2] <= 0:
+            continue
+        shade = int(40 + 215 * min(1.0, n[2] + 0.5 * n[1]))
+        pts = [(320 + rv[k][0] * 1.6, 200 - rv[k][1] * 1.6) for k in f]
+        d.polygon(pts, fill=shade, outline=shade)
+    img.save(PREVIEW)
+
+
+if __name__ == "__main__":
+    verts, faces = build()
+    faces = fix_winding(verts, faces)
+    emit(verts, faces)
+    preview(verts, faces)
+    print(f"wrote {OUT} ({len(verts)} verts, {len(faces)} faces) and {PREVIEW}")

@@ -540,18 +540,21 @@ keys:
     dc.w    292,348,292,348,200,400
     dc.w    320,320,320,320,200,200
     dc.w    320,320,320,320,200,200
-    ; wedges: four triangles, and slot 6 as a patch over the point where
-    ; they meet. A span only reaches the centre on its very LAST row, so
-    ; on the middle row the four of them stop short of each other and
-    ; leave a lens-shaped hole. Widening the overshoot enough to close it
-    ; thickens the waist, which is the one thing the figure is about.
-    dc.w      0,  0,  0,330, 80,204
-    dc.w      0,330,  0,  0,196,320
-    dc.w    640,640,310,640, 80,204
-    dc.w    310,640,640,640,196,320
+    ; wedges: four triangles meeting at a point. The halves TILE -- the
+    ; upper one ends on row 200 with its edge exactly at the centre and
+    ; the lower one starts there, so the waist closes on that one row and
+    ; opens again symmetrically, 5 px either side of it and 43 px eight
+    ; rows out. Ending the upper half a row earlier leaves one row where
+    ; neither reaches, which is the lens-shaped hole a patch over the
+    ; junction used to cover -- and the patch then stuck out past the
+    ; triangles as a pair of shoulders.
+    dc.w      0,  0,  0,323, 80,201
+    dc.w      0,320,  0,  0,200,320
+    dc.w    640,640,317,640, 80,201
+    dc.w    320,640,640,640,200,320
     dc.w    320,320,320,320,200,200
     dc.w    320,320,320,320,200,200
-    dc.w    308,332,308,332,194,206
+    dc.w    320,320,320,320,200,200
     dc.w    320,320,320,320,200,200
     ; bold X: every wedge narrows into the arm on its own side
     dc.w      0, 70,285,355,  0,200

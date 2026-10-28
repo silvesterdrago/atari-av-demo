@@ -1,0 +1,167 @@
+# Сиквенс: 66 кадров и что из них стоит на ST
+
+Порядок и имена — из пакета художника, `02_main-sequence` (кадры показа,
+1920×1080). Генератор каждой композиции — `05_source-code/build56.py`,
+таблица `SLOTS`; базовые примитивы — `system.py`, у нас пропатченная копия в
+`tools/sysload.py`. Папка `01_set-45_reference-order` — подмножество этого же
+набора в другом порядке, на неё здесь не ссылаемся.
+
+Статус:
+
+* **есть** — работает на машине, свой бинарник
+* **перепечь** — это наш же генератор с другими параметрами или наш движок по
+  другому исходному кадру; нового кода на ST не нужно
+* **статикой в `TEST.DAT`** — экран уже напечатан нашим генератором как
+  тестовый, но в арке не живёт; считается перепечкой
+* **нет** — нужен новый код или новая печать
+
+Итог по 66 кадрам:
+
+* **18** живут сценами на машине
+* **5** — репризы форм акта I: нарисованы, но стоят не на своём месте в арке
+* **10** закрываются перепечкой
+* **33** требуют нового кода или новой печати
+
+## I ZERO — `ZERO.TOS`, готово целиком
+
+6 КБ, без файлов данных, морф четырьмя прямоугольниками, полный круг 20 с.
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 01 | black | `01_I-zero_black.png` | есть |
+| 02 | point | `02_I-zero_point.png` | есть |
+| 03 | line | `03_I-zero_line.png` | есть |
+| 04 | two-lines | `04_I-zero_two-lines.png` | есть |
+| 05 | square | `05_I-zero_square.png` | есть |
+
+## II LINE — `LINE.TOS`, 6 из 7
+
+7 КБ, без файлов данных, примитив — трапеция, полный круг 27 с.
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 06 | cross-thin | `06_II-line_cross-thin.png` | есть |
+| 07 | cross-bold | `07_II-line_cross-bold.png` | есть |
+| 08 | diagonals-wedges | `08_II-line_diagonals-wedges.png` | есть |
+| 09 | x-bold | `09_II-line_x-bold.png` | есть |
+| 10 | horizontals | `10_II-line_horizontals.png` | есть |
+| 11 | verticals | `11_II-line_verticals.png` | есть, смена через схлопывание в центр |
+| 12 | radial | `12_II-line_radial.png` | нет; `radial_bowtie`, 16 клиньев из центра — восьмое состояние в тот же `line.s` |
+
+## III SYSTEM — ни одного живого из 4
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 13 | grid | `13_III-system_grid.png` | нет; `floor`. Наш `GRID.TOS` — он же плюс город и летящие горизонтали, 71 Гц |
+| 14 | grid-point | `14_III-system_grid-point.png` | нет; тот же пол и квадрат в центре |
+| 15 | nested-squares | `15_III-system_nested-squares.png` | статикой в `TEST.DAT`; живьём — четыре рамки, то есть `zero.s` с рамкой вместо полосы |
+| 16 | steps | `16_III-system_steps.png` | нет; пирамида из девяти полос, девять слотов `zero.s` |
+
+## IV SPACE — 2 живых из 10, ещё 2 перепечкой
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 17 | tunnel-frames | `17_IV-space_tunnel-frames.png` | есть, `TUNNEL.TOS`, 24 кадра |
+| 18 | corridor | `18_IV-space_corridor.png` | есть, `CORRIDOR.TOS` |
+| 19 | tunnel-plain | `19_IV-space_tunnel-plain.png` | перепечь: `tunnel(n=4, ratio=1.7, t=18)` в `genflip.py` |
+| 20 | room | `20_IV-space_room.png` | нет; `room_corner`, пучки линий из точки — дешевле считать на машине, чем печь |
+| 21 | branching | `21_IV-space_branching.png` | нет |
+| 22 | pit-thin | `22_IV-space_pit-thin.png` | нет; `pit` |
+| 23 | pit-bold | `23_IV-space_pit-bold.png` | нет; та же яма, камера выше |
+| 24 | multiple-spaces-A | `24_IV-space_multiple-spaces-A.png` | нет; коридор, у которого стены и потолок — решётки |
+| 25 | multiple-spaces-B | `25_IV-space_multiple-spaces-B.png` | нет; `rhythm_walls` OR пол коридора |
+| 26 | expansion | `26_IV-space_expansion.png` | перепечь: `corridor(panel_len=1.1, panel_gap=0.35)` |
+
+## V EXPANSION — 1 живой из 15, самый пустой акт
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 27 | tilt-square | `27_V-expansion_tilt-square.png` | нет; концентрика, повёрнутая и отмасштабированная |
+| 28 | double-perspective-A | `28_V-expansion_double-perspective-A.png` | нет; две точки схода |
+| 29 | double-perspective-B | `29_V-expansion_double-perspective-B.png` | перепечь: OR коридора и туннеля, оба генератора есть |
+| 30 | corridor-in-corridor | `30_V-expansion_corridor-in-corridor.png` | нет; `nested_inverted` |
+| 31 | crossing-planes | `31_V-expansion_crossing-planes.png` | нет |
+| 32 | planes-from-side | `32_V-expansion_planes-from-side.png` | нет |
+| 33 | bend-A | `33_V-expansion_bend-A.png` | нет; пол горкой |
+| 34 | bend-B | `34_V-expansion_bend-B.png` | нет; пол ямой |
+| 35 | spiral | `35_V-expansion_spiral.png` | статикой в `TEST.DAT`; анимация — вращение, печётся как `HYPER` |
+| 36 | hex-tunnel | `36_V-expansion_hex-tunnel.png` | нет |
+| 37 | swirl | `37_V-expansion_swirl.png` | нет; единственная кривая в наборе, считается по пикселям — только печать |
+| 38 | layered | `38_V-expansion_layered.png` | нет; коридор с вырезанной стеной, за ней плоская решётка |
+| 39 | complex-structures | `39_V-expansion_complex-structures.png` | перепечь: коридор плюс линии пола |
+| 40 | wave | `40_V-expansion_wave.png` | есть, `WAVE.TOS` |
+| 41 | sunburst | `41_V-expansion_sunburst.png` | нет; 16 клиньев из центра, трапеция из `line.s` |
+
+## VI ERROR — 4 живых из 16, ещё 4 перепечкой; четверть шоу
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 42 | tilt | `42_VI-error_tilt.png` | нет |
+| 43 | axis-loss | `43_VI-error_axis-loss.png` | есть, `DRIFT.TOS` |
+| 44 | desync | `44_VI-error_desync.png` | есть, `DESYNC.TOS` |
+| 45 | grid-distortion | `45_VI-error_grid-distortion.png` | нет; решётка с линзой, печётся |
+| 46 | perspective-shift | `46_VI-error_perspective-shift.png` | есть как фаза `DRIFT` — коридор со сдвинутой точкой схода |
+| 47 | break | `47_VI-error_break.png` | нет; коридор, разрезанный на 11 вертикальных ломтей со сдвигом — тот самый VHS-сдвиг, который оценён и отложен |
+| 48 | fault-grid | `48_VI-error_fault-grid.png` | нет |
+| 49 | dissolve-A | `49_VI-error_dissolve-A.png` | есть, `DISSOLVE.TOS`, шесть уровней |
+| 50 | dissolve-B | `50_VI-error_dissolve-B.png` | перепечь: наш `dissolve.inc` по кадрам `TUNNEL.DAT` |
+| 51 | unstable-A | `51_VI-error_unstable-A.png` | нет; `unparallel` |
+| 52 | unstable-B | `52_VI-error_unstable-B.png` | перепечь: коридор, выбитый 22 чёрными прямоугольниками — половина `dissolve.inc`, гашение без укладки обратно |
+| 53 | cracked-room | `53_VI-error_cracked-room.png` | нет |
+| 54 | collapsing-perspective | `54_VI-error_collapsing-perspective.png` | нет; 20 клиньев из краёв в центр, трапеция из `line.s` |
+| 55 | fragmentation-A | `55_VI-error_fragmentation-A.png` | перепечь: наш развал по кадру 54 |
+| 56 | fragmentation-B | `56_VI-error_fragmentation-B.png` | перепечь: наш развал по кадру 25 |
+| 57 | tilt-collapse | `57_VI-error_tilt-collapse.png` | нет; `twisted_squares` |
+
+## VII COLLAPSE — ни одного живого из 6, но три формы уже написаны
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 58 | compression | `58_VII-collapse_compression.png` | нет |
+| 59 | square (реприза) | `59_VII-collapse_square_reprise.png` | форма написана как состояние акта I |
+| 60 | four-lines | `60_VII-collapse_four-lines.png` | нет; четыре уголка-скобки, восемь прямоугольников |
+| 61 | two-lines (реприза) | `61_VII-collapse_two-lines_reprise.png` | форма написана как состояние акта I |
+| 62 | one-line | `62_VII-collapse_one-line.png` | нет; одна вертикаль |
+| 63 | dash (реприза) | `63_VII-collapse_dash_reprise.png` | форма написана как состояние акта I |
+
+## VIII ZERO — ни одного живого из 2, обе формы написаны
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 64 | point (реприза) | `64_VIII-zero_point_reprise.png` | форма написана как состояние акта I |
+| 65 | black (реприза) | `65_VIII-zero_black_reprise.png` | форма написана как состояние акта I |
+
+## END
+
+| # | кадр | референс | статус |
+|---|---|---|---|
+| 66 | title-card | `66_END_title-card_PLACEHOLDER.png` | у них плейсхолдер; у нас это один `incbin` на 32000 байт, когда будет кадр с афиши |
+
+## Что из этого следует
+
+**Акты VII и VIII — сборка, а не работа.** Пять форм из восьми уже написаны в
+`zero.s` как состояния, остальные три — прямоугольники в тот же движок. Это и
+есть `PRIMS.TOS`: акты I, II, VII, VIII (и III) в одном маленьком бинарнике,
+переключение мгновенное, ни одного `.DAT`.
+
+**Акт VI дешевле, чем выглядит.** Шесть дыр из тринадцати (47, 50, 52, 54, 55,
+56) закрываются двумя уже написанными вещами: движком развала из
+`dissolve.inc` и трапецией из `line.s`. Новой геометрии там нет — есть другой
+исходный кадр и другой набор блоков.
+
+**Акт V — настоящая работа.** Четырнадцать дыр, и половина из них требует
+новой перспективной геометрии в генераторе.
+
+## Наше, вне их сиквенса
+
+`GRID`, `HYPER`, `HALFTONE`, `CUBES`, `CUBES4`, `SOLIDS`, `SHAPES`,
+`MONOLITH`, `SPARKS`, `GLYPHS`, `PLASMA`, `SHURIKEN`, `TETRAPOD`
+(`VECTORS` забракован). `GRID` и `HALFTONE` по языку ближе всего к акту III и
+могли бы встать в арку как его живая версия.
+
+## Шесть анимированных у них самих
+
+`03_loops`, mp4 плюс HAP: `loop_19` tunnel-forward, `loop_20`
+corridor-forward, `loop_30` wave, `loop_34` desync, `loop_35` axis-drift,
+`loop_36` dissolve. **Все шесть стоят на машине.** Акты I и II у них статика — там, где
+мы анимируем морфом, они переключают кадры.

@@ -159,6 +159,38 @@ file-based MIDI drops most of a burst -- 4 bytes of 14 got through in the first
 run, which is why the test sends each message forty times -- so hold-style
 effects have to be confirmed on the machine.
 
+### Sending a position
+
+`tools/pos.py` sends a position, an effect or transport on the control
+channel. The code is the position in the storyboard, so there is nothing to
+look up:
+
+```
+tools/pos.py 18 --port TM-1          # position 18: the corridor
+tools/pos.py 15 16 --gap 4 --port TM-1
+tools/pos.py freeze --hold 2 --port TM-1
+tools/pos.py --start --port TM-1     # back to a known state
+```
+
+`--port` is a CoreMIDI output, matched on part of its name -- the real machine
+through the interface. It needs mido, and if the system python has none the
+whole command runs under `uv run --with mido --with python-rtmidi`. `--fifo`
+writes to the pipe Hatari reads with `--midi-in` instead and needs nothing.
+
+Two things the script has to get right, both learned here. The pipe is opened
+**O_RDWR**, never write-only: a write-only end that closes hands Hatari EOF and
+it stops reading MIDI for the rest of the run, which is the same reason
+`midibridge.c` does it. And `--fifo` repeats every message 25 times, because
+Hatari's file MIDI trickles -- measured at roughly twenty bytes a second, so a
+single message can be the only one that lands in several seconds. A real cable
+runs at 3125 bytes a second and `--port` sends once.
+
+That trickle is also why the script's own output is checked byte for byte
+rather than by watching the emulator react: `pos.py 5 -v 40` writes exactly
+`9f 05 28`, and that is the part the script is answerable for. The ST side of
+the same bytes is proven separately -- a recorded run switched PRIMS into act
+III and ARC into the corridor and the dissolve.
+
 ### The strobe, over any scene
 
 Inverting the whole display is one word to the palette register, so the strobe

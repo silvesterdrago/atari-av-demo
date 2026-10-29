@@ -29,7 +29,7 @@ POOL_SIZE   equ 1024
 RANGE_PAGES equ 131             ; two whole screens to flip between
     include "src/core/head.s"
 
-NSLOT       equ 18              ; one slot count for every act, so the
+NSLOT       equ 20              ; one slot count for every act, so the
 NSTATE      equ 9               ; tables are interchangeable
 HOLD        equ 70
 MORPH       equ 130

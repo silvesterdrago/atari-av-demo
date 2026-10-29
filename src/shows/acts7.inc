@@ -29,6 +29,9 @@
     dc.w    296,304,188,196,214,298
     dc.w    336,344,444,452,214,298
     dc.w    320,320,320,320,200,200
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; square: the rings and the edges go, the outer ring becomes the square
     dc.w    245,320,245,320,125,143
     dc.w    320,395,320,395,125,143
@@ -42,6 +45,9 @@
     dc.w    320,320,320,320,200,200
     endr
     dc.w    320,320,320,320,200,200
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; four corners: each half-side pulls out to the corner it belongs to
     dc.w    210,280,210,280, 90,104
     dc.w    360,430,360,430, 90,104
@@ -52,6 +58,9 @@
     dc.w    416,430,416,430, 90,160
     dc.w    416,430,416,430,240,310
     rept 10
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr
     ; two lines: the corner arms fold into one vertical a side, and the
@@ -66,6 +75,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; one line
     rept 4
     dc.w    320,320,320,320,200,200
@@ -77,12 +89,18 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; dash: the line lies down
     rept 4
     dc.w    320,320,320,320,200,200
     endr
     dc.w    285,355,285,355,194,206
     rept 13
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr
     ; point
@@ -93,8 +111,14 @@
     rept 13
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; black
     rept 18
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr
     ; and round to the compression again
@@ -116,3 +140,6 @@
     dc.w    296,304,188,196,214,298
     dc.w    336,344,444,452,214,298
     dc.w    320,320,320,320,200,200
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr

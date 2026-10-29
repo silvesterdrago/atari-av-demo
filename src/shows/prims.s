@@ -1,7 +1,8 @@
 ;======================================================================
 ;  PRIMS -- the arc's primitive acts in one binary, on the number keys.
 ;
-;      1 ZERO (I)   2 LINE (II)   3 COLLAPSE (VII+VIII)   4 the point
+;      1 ZERO (I)   2 LINE (II)   3 SYSTEM (III)
+;      4 COLLAPSE (VII+VIII)   5 the point
 ;
 ;  Every one of them is keyframes on the same trapezoid engine, so the
 ;  set is not a set in the CORRSET sense at all: there is one table, each
@@ -14,9 +15,10 @@
 ;
 ;      src/shows/acts1.inc   ZERO.TOS      and rows 0-5 here
 ;      src/shows/acts2.inc   LINE.TOS      and rows 6-13
-;      src/shows/acts7.inc   COLLAPSE.TOS  and rows 14-22
+;      src/shows/acts3.inc   SYSTEM.TOS    and rows 14-16
+;      src/shows/acts7.inc   COLLAPSE.TOS  and rows 17-25
 ;
-;  Key 4 is their safety roll from the brief -- a point on black, held --
+;  Key 5 is their safety roll from the brief -- a point on black, held --
 ;  and it is two rows of its own rather than act I's point, so that
 ;  reaching for it never walks on into the next composition.
 ;
@@ -28,11 +30,11 @@ POOL_SIZE   equ 1024
 RANGE_PAGES equ 131             ; two whole screens to flip between
     include "src/core/head.s"
 
-NSLOT       equ 18              ; one slot count for every act, so the
-NSTATE      equ 25              ; tables are interchangeable
+NSLOT       equ 20              ; one slot count for every act, so the
+NSTATE      equ 28              ; tables are interchangeable
 HOLD        equ 70
 MORPH       equ 130
-NACT        equ 4
+NACT        equ 5
 
     include "src/shows/morph.inc"
 
@@ -98,22 +100,24 @@ scene_select:
 act_tbl:
     dc.w      0,  4             ; I    black .. square
     dc.w      6, 12             ; II   thin cross .. verticals
-    dc.w     14, 21             ; VII  compression .. black
-    dc.w     23, 23             ; the point, held
+    dc.w     14, 15             ; III  nested squares .. steps
+    dc.w     17, 24             ; VII  compression .. black
+    dc.w     26, 26             ; the point, held
 
     even
 keys:
     include "src/shows/acts1.inc"
     include "src/shows/acts2.inc"
+    include "src/shows/acts3.inc"
     include "src/shows/acts7.inc"
     ; the safety roll: a point on black, and the state it eases into is
     ; the same point, so it sits there for as long as it is needed
     dc.w    304,336,304,336,187,213
-    rept 17
+    rept 19
     dc.w    320,320,320,320,200,200
     endr
     dc.w    304,336,304,336,187,213
-    rept 17
+    rept 19
     dc.w    320,320,320,320,200,200
     endr
 

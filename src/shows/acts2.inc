@@ -20,6 +20,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; bold cross
     dc.w      0,320,  0,320,172,200
     dc.w      0,320,  0,320,200,228
@@ -30,6 +33,9 @@
     dc.w    320,320,320,320,200,200
     dc.w    320,320,320,320,200,200
     rept 10
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr
     ; wedges: four triangles meeting at a point. The halves TILE -- the
@@ -51,6 +57,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; bold X: every wedge narrows into the arm on its own side
     dc.w      0, 70,285,355,  0,200
     dc.w    285,355,  0, 70,200,400
@@ -63,6 +72,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; horizontals
     dc.w      0,640,  0,640, 16, 38
     dc.w      0,640,  0,640, 64, 86
@@ -73,6 +85,9 @@
     dc.w      0,640,  0,640,304,326
     dc.w      0,640,  0,640,352,374
     rept 10
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr
     ; through the centre: the horizontals collapse to nothing and the
@@ -89,6 +104,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; verticals
     dc.w     24, 60, 24, 60,  0,400
     dc.w    100,136,100,136,  0,400
@@ -101,6 +119,9 @@
     rept 10
     dc.w    320,320,320,320,200,200
     endr
+    rept 2
+    dc.w    320,320,320,320,200,200
+    endr
     ; and round to the thin cross again
     dc.w    120,320,120,320,194,200
     dc.w    120,320,120,320,200,206
@@ -111,5 +132,8 @@
     dc.w    320,320,320,320,200,200
     dc.w    320,320,320,320,200,200
     rept 10
+    dc.w    320,320,320,320,200,200
+    endr
+    rept 2
     dc.w    320,320,320,320,200,200
     endr

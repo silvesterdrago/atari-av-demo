@@ -172,12 +172,35 @@ dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
      dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT
 
-# Watch it switch: a window, the number keys for the rehearsal list, and the
-# MIDI pipe ready so tools/pos.py can send positions from another terminal.
+# Watch it switch. The number keys drive the rehearsal list; the MIDI pipe is
+# set up too, so tools/pos.py can send positions from another terminal.
+#
+# This one runs the HOMEBREW hatari on purpose. The two builds take different
+# MIDI options -- the PortMidi build has --midi and takes its ports from a
+# config file, the Homebrew build has --midi-in and reads a file or a pipe --
+# and HATARI_BIN prefers the PortMidi one, which is the wrong build for a pipe.
+ARCRUN := --tos $(TOS) --machine st --memsize 1 --monitor mono --sound off \
+          --gemdos-drive C -d dist --auto 'C:\ARC.TOS'
+
+# Opening a FIFO for reading BLOCKS until somebody holds the other end, so
+# without a writer parked on it Hatari hangs before it boots. The holder opens
+# O_RDWR, which never blocks and never hands Hatari EOF -- the same reason
+# midibridge.c and tools/pos.py do.
 run-arc: arc fifo
-	$(HATARI_BIN) --tos $(TOS) --machine st --memsize 1 --monitor mono \
-	              --sound off --gemdos-drive C -d dist --auto 'C:\ARC.TOS' \
-	              $(MIDIOPTS)
+	@python3 -c "import os, time; os.open('$(FIFO)', os.O_RDWR); time.sleep(99999)" & \
+	 echo $$! > /tmp/noiseav-hold.pid
+	-hatari $(ARCRUN) $(MIDIOPTS)
+	@kill `cat /tmp/noiseav-hold.pid` 2>/dev/null; rm -f /tmp/noiseav-hold.pid
+
+# The same, but through CoreMIDI on the PortMidi build: whole messages, none
+# of the pipe's trickle, and the closest thing to the real rig -- Live sends
+# to a virtual port and this reads it. MIDIPORT picks the port; the default
+# needs IAC enabled in Audio MIDI Setup.
+run-arc-pm: arc
+	@test -x $(HATARI_PM) || { echo "run tools/build-hatari-pm.sh first"; exit 1; }
+	@printf '[Midi]\nbEnableMidi = TRUE\nsMidiInPortName = %s\nsMidiOutPortName = Off\n' \
+	        "$(MIDIPORT)" > /tmp/noiseav-arc.cfg
+	$(HATARI_PM) --configfile /tmp/noiseav-arc.cfg --midi 1 $(ARCRUN)
 
 multi: $(MULTI) $(MULTIB) $(MULTIC)
 	@ls -la $(MULTI) $(MULTIB) $(MULTIC) $(DATS)

@@ -191,6 +191,26 @@ tools/pos.py 15 --fifo /tmp/noiseav.midi
 Expect a second or two of lag there and the odd command to go missing: that is
 the emulator's file MIDI trickling, not the show. The keys have none of it.
 
+Two things that target has to get right, both of which broke it first:
+
+* **Which hatari.** The two builds take different MIDI options -- the Homebrew
+  one has `--midi-in <file>`, the PortMidi one has `--midi` and takes its ports
+  from a config file -- and `HATARI_BIN` prefers the PortMidi build, which is
+  the wrong one for a pipe. `run-arc` calls `hatari` by name on purpose.
+* **Somebody has to hold the pipe.** Opening a FIFO for reading blocks until a
+  writer is on the other end, so Hatari hangs before it boots. The target parks
+  a holder on it, opened O_RDWR so it never blocks and never hands Hatari EOF.
+
+```
+make run-arc-pm
+```
+
+The same show through CoreMIDI on the PortMidi build: whole messages and none
+of the trickle, which is the closest thing here to the real rig. It needs a
+port both sides can see -- IAC enabled in Audio MIDI Setup, or a virtual port
+from whatever is sending -- picked with `MIDIPORT='...'`; `make midi-list`
+prints the names.
+
 ### Sending a position
 
 `tools/pos.py` sends a position, an effect or transport on the control

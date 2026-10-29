@@ -13,6 +13,7 @@ does not know a position ignores it.
 
 Two destinations:
 
+    --list            print the CoreMIDI outputs and stop, to find the name
     --port 'TM-1'     a CoreMIDI output, which is the real machine through
                       the interface. Needs mido; if the system python has
                       none, run the whole command under
@@ -116,10 +117,21 @@ def main():
     ap.add_argument("--gap", type=float, default=0.0, help="секунд между кодами")
     ap.add_argument("--repeat", type=int, default=None,
                     help="сколько раз слать каждое сообщение (для --fifo по умолчанию 25)")
+    ap.add_argument("--list", action="store_true",
+                    help="перечислить выходы CoreMIDI и выйти")
     ap.add_argument("--start", action="store_true", help="транспорт: start")
     ap.add_argument("--stop", action="store_true", help="транспорт: stop")
     a = ap.parse_args()
 
+    if a.list:
+        try:
+            import mido
+        except ImportError:
+            sys.exit("нет mido: запусти через\n"
+                     "  uv run --with mido --with python-rtmidi tools/pos.py --list")
+        for n in mido.get_output_names():
+            print(n)
+        return
     if not a.what and not (a.start or a.stop):
         ap.error("нечего слать")
     if a.fifo and a.port:

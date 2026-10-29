@@ -169,6 +169,8 @@ tools/pos.py --start --port TM-1         # транспорт
 
 `--port` — выход CoreMIDI по куску имени; нужен `mido`, а в системном python
 его нет, поэтому команда идёт через `uv run --with mido --with python-rtmidi`.
+`--list` печатает, что CoreMIDI видит на выходе — с подключённым интерфейсом
+это `Elektron TM-1`, и `--port TM-1` его находит.
 `--fifo` пишет в пайп, который Hatari читает ключом `--midi-in`, и не требует
 ничего.
 

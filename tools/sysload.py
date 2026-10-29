@@ -154,12 +154,26 @@ TUNNEL_PERSP = '''    zs = []
                 cz(_sx, 1, _zf, vx, vy), cz(_sx, -1, _zf, vx, vy)])'''
 
 
+# The floor's depths are a hand-typed default rounded to two figures, and
+# their ratios run 1.40 to 1.48 -- while floor() steps the phase by a fixed
+# 1.42, so the code already treats the set as geometric. It very nearly is,
+# and the gap is what keeps the loop from closing: phase 0 and phase 1 differ
+# by 15778 pixels. Made exactly geometric, the set maps onto itself under the
+# step the generator already uses and the loop closes to the pixel. Nothing
+# moves more than three rows out of four hundred, on lines 3 to 13 px thick.
+# pit() passes its own depths, so this leaves it alone.
+FLOOR_ZS = "zs=(1, 1.4, 2.0, 2.9, 4.2, 6.2)"
+FLOOR_GEOM = "zs=tuple(1.42 ** _k for _k in range(6))"
+
+
 def sysmod(h=H, mitre=False):
     key = (h, mitre)
     if key in _MODS:
         return _MODS[key]
     src = open(os.path.join(SRC, "system.py")).read()
     src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
+    assert src.count(FLOOR_ZS) == 1, "the floor's depth set moved"
+    src = src.replace(FLOOR_ZS, FLOOR_GEOM, 1)
     if mitre:
         assert PLAIN in src, "corridor's corner-edge loop moved"
         assert BARS_PLAIN in src, "corridor's floor-bar thickness moved"

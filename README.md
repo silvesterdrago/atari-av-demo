@@ -113,6 +113,11 @@ scene is running; `ESC` quits.
 
 ### MIDI control: one channel per role
 
+The full control spec -- codes, effects, transport, what each position costs to
+enter, and what is verified against what is not -- is in [CONTROL.md](CONTROL.md).
+What follows is the summary.
+
+
 Everything is driven from Ableton Live, so the split is by CHANNEL, which in
 Live means by track: one track for hits, one for commands. Muting the commands
 leaves the hits playing, and both are visible side by side in the arrangement.

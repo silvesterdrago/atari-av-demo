@@ -17,6 +17,11 @@
 ;         hit, so a show can be driven with no MIDI plugged in. A
 ;         multi-scene build defines SCENES and takes 1-9 for itself.
 ;
+;  MIDI:  notes anywhere but the control channel are hits. On CTRL_CH a
+;         note is a COMMAND -- its number is the code and its velocity the
+;         strength to enter with -- a controller is a parameter, and
+;         transport start puts the show back to a known state.
+;
 ;  Build with -DDIAG=1 for the frame-budget overrun bar, -DSTROBE=1 to
 ;  boot with the strobe already running.
 ;======================================================================
@@ -32,6 +37,9 @@ DIAG        equ 0
     ; Lowest pad note. Akai MPK Mini mk3 bank A starts at 36, mk2 at 48.
     ; Any contiguous run of 8 notes still gives 8 distinct looks whatever
     ; this is set to -- a wrong base only rotates which pad is which.
+    ifnd CTRL_CH                ; commands arrive on a channel of their own,
+CTRL_CH     equ 16              ; which is one Live track, so muting them
+    endif                       ; leaves the hits playing
     ifnd PAD_BASE
 PAD_BASE    equ 36
     endif
@@ -216,12 +224,10 @@ start:
     move.l  buf_base,d0
     bsr     set_screen_base
     move.w  #$000,PALETTE_HW    ; mono: colour 0 dark = black ground, white ink
-    clr.w   strobe_ctr
-    clr.w   strobe_ph
+    bsr     fx_reset
+    move.w  #STROBE_HALF,strobe_per
     ifd STROBE
     move.w  #1,strobe_on        ; boot strobing, for measuring without a key
-    else
-    clr.w   strobe_on
     endif
     bsr     clear_visible
     bsr     show_init
@@ -234,8 +240,11 @@ mainloop:
     endif
     bsr     measure_overrun
 
+    tst.w   fx_freeze           ; a held freeze stops the show where it is
+    bne.s   .frozen
     bsr     show_frame
-    bsr     strobe_frame        ; after the show, so it owns the palette
+.frozen:
+    bsr     fx_frame            ; after the show, so it owns the palette
 
     if DIAG
     bsr     draw_overrun_bar

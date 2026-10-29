@@ -111,6 +111,54 @@ Any key is a full-strength hit on one of the eight pads, so a show can be
 driven with nothing plugged in. `Z` turns the strobe on and off over whatever
 scene is running; `ESC` quits.
 
+### MIDI control: one channel per role
+
+Everything is driven from Ableton Live, so the split is by CHANNEL, which in
+Live means by track: one track for hits, one for commands. Muting the commands
+leaves the hits playing, and both are visible side by side in the arrangement.
+
+| what | where | meaning |
+|---|---|---|
+| note, any channel but `CTRL_CH` | hits track | a hit; velocity is strength through `vel_tbl` |
+| note on `CTRL_CH` (default 16) | commands track | the note number is a COMMAND CODE, the velocity the strength to enter with |
+| program change on `CTRL_CH` | clip's Pgm field | the same code without a strength |
+| controller on `CTRL_CH` | clip envelope | CC 0-7 are kept in `cc_val`; CC 1 stretches the strobe period |
+| `$FA` start | transport | back to a known state: effects off, first scene |
+| `$FC` stop | transport | effects off, so a held one cannot stick |
+| `$F8` clock | transport | 24 ppqn, counted into beats for the tempo-locked strobe |
+
+Codes under 100 go to the show's own `scene_select` unchanged, so the code
+space belongs to the show. Codes from 100 up are effects, and they live in the
+core because what they touch -- the palette register, and whether `show_frame`
+runs at all -- is the core's:
+
+| code | effect |
+|---|---|
+| 100 | strobe on/off |
+| 101 | strobe while held |
+| 102 | strobe locked to the beat, while held |
+| 103 | freeze while held |
+| 104 | one inverted frame |
+
+Two things the parser had to learn. Program change and channel pressure carry
+ONE data byte, so they are complete at the first one and must not touch the
+pair counter -- under running status a counter would pair them up and
+desynchronise. And note-off (and note-on at velocity zero) now matters, because
+an effect held for the length of a note needs its release.
+
+There is no blackout code. In mono the palette gives inversion and nothing
+else, so blacking out means either clearing the visible screen -- which would
+eat a baked frame out of a flipbook's buffer -- or holding a third, blank
+screen page at 32 KB. Worth doing per-build later; it is not free.
+
+**What is verified, and how.** Driving a real run through Hatari's MIDI in:
+a command code switched scenes (note 2 on channel 16 put PRIMS into act III,
+confirmed on the recorded frame), the strobe toggled, and transport start
+reset the show. Note-off and CC are **not** verified on the emulator: its
+file-based MIDI drops most of a burst -- 4 bytes of 14 got through in the first
+run, which is why the test sends each message forty times -- so hold-style
+effects have to be confirmed on the machine.
+
 ### The strobe, over any scene
 
 Inverting the whole display is one word to the palette register, so the strobe

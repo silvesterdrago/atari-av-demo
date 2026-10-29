@@ -421,6 +421,12 @@ poll_midi:
     bra     .next
 
 .data:
+    move.b  midi_status,d1      ; program change and channel pressure carry
+    and.b   #$f0,d1             ; ONE data byte, so they are complete here.
+    cmp.b   #$c0,d1             ; Leaving midi_count alone is the whole trick:
+    beq     .prog               ; under running status every following byte is
+    cmp.b   #$d0,d1             ; another message of the same kind, and a
+    beq     .next               ; counter would pair them up and desynchronise
     move.w  midi_count,d1
     bne.s   .second
     move.b  d0,midi_d1
@@ -428,12 +434,20 @@ poll_midi:
     bra     .next
 .second:
     clr.w   midi_count
-    move.b  midi_status,d1
-    and.b   #$f0,d1
+    move.b  midi_status,d2      ; the CHANNEL is the surface, not a note range:
+    move.b  d2,d1               ; one Live track per role, and muting the
+    and.b   #$f0,d1             ; commands leaves the hits playing
+    and.b   #$0f,d2
+    cmp.b   #$b0,d1
+    beq     .ctl
+    cmp.b   #$80,d1
+    beq     .off
     cmp.b   #$90,d1
     bne     .next
     tst.b   d0
-    beq     .next
+    beq     .off                ; note-on at velocity 0 IS a note-off
+    cmp.b   #CTRL_CH-1,d2
+    beq     .cmd
     ; velocity through the curve
     and.w   #$7f,d0
     lea     vel_tbl,a0
@@ -463,15 +477,73 @@ poll_midi:
     bsr     show_note_on        ; d0 = strength, d1 = pad*2
     bra     .next
 
+.cmd:                           ; a command carries a code AND a strength, so
+    and.w   #$7f,d0             ; entering a scene can arrive already running
+    lea     vel_tbl,a0
+    move.b  (a0,d0.w),d0
+    and.w   #$ff,d0
+    moveq   #0,d1
+    move.b  midi_d1,d1
+    bsr     cmd_press
+    bra     .next
+.off:
+    cmp.b   #CTRL_CH-1,d2
+    bne     .next
+    moveq   #0,d1
+    move.b  midi_d1,d1
+    bsr     cmd_release
+    bra     .next
+.ctl:
+    cmp.b   #CTRL_CH-1,d2
+    bne     .next
+    moveq   #0,d1
+    move.b  midi_d1,d1          ; controller number
+    bsr     cmd_cc
+    bra     .next
+.prog:                          ; the payload is this one byte; no strength
+    move.b  midi_status,d1
+    and.b   #$0f,d1
+    cmp.b   #CTRL_CH-1,d1
+    bne     .next
+    moveq   #0,d1
+    move.b  d0,d1
+    moveq   #0,d0
+    bsr     cmd_press
+    bra     .next
+
 .realtime:
+    cmp.b   #$fa,d0
+    beq     .start
+    cmp.b   #$fc,d0
+    beq     .stop
     cmp.b   #$f8,d0
     bne     .next
+    addq.w  #1,clk_tick         ; 24 ppqn: the beat is what a tempo-locked
+    cmp.w   #24,clk_tick        ; effect counts, not the frame
+    bcs.s   .notick
+    clr.w   clk_tick
+    addq.w  #1,clk_beat
+    bsr     fx_beat
+.notick:
     move.w  level,d1
     cmp.w   #$40,d1
     bcc     .next
     move.w  #$40,level
     clr.w   idle_ticks
     bra     .next
+.start:                         ; the arrangement drives the scenes, so play
+    clr.w   clk_tick            ; has to mean "back to a known state" -- without
+    clr.w   clk_beat            ; it a stop leaves the tape and the screen
+    bsr     fx_reset            ; disagreeing about what is on
+    ifd SCENES
+    moveq   #0,d0
+    moveq   #0,d1
+    bsr     scene_select
+    endif
+    bra     .next
+.stop:
+    bsr     fx_reset            ; a held effect whose note-off never comes
+    bra     .next               ; would otherwise stay on for good
 
 .empty:
     rts
@@ -528,46 +600,204 @@ poll_keyboard:
     rts
 
 ;----------------------------------------------------------------------
-; The strobe, on Z. Inverting the whole display is one word to the palette
-; register, so it costs nothing and can sit over any scene -- which is what
-; makes it a modifier rather than a scene of its own.
+; Effects. All of them live here rather than in a show, because the things
+; they touch -- the palette register and whether show_frame runs at all --
+; belong to the core, so every show on it gets them for nothing.
 ;
-; STROBE_HALF is not a build flag on purpose. One inversion every 8 frames
-; is 4.5 Hz on the glass; the register can flip every frame at 71 Hz, and
-; 15-25 Hz is where photosensitive seizure risk peaks. The rate stays here,
-; in one place, rather than being reachable from a command line.
+; Inverting the whole display is one word to the palette, which is why the
+; strobe costs nothing and can sit over any scene.
 ;
-; The palette is written every frame while strobing rather than only on the
-; turns: a show may write it itself -- GRID and HYPER inverse-flash on a hard
-; hit -- and this way the strobe takes the register back on the next frame
-; instead of the two fighting over who owns it.
+; STROBE_HALF is the floor on the period, not just its default, and it is
+; not a build flag: one inversion every 8 frames is 4.5 Hz on the glass,
+; the register will flip every frame at 71 Hz if asked, and 15-25 Hz is
+; where photosensitive seizure risk peaks. A controller may stretch the
+; period but never shorten it past this.
+;
+; The palette is written every frame while an effect is inverting rather
+; than only on the turns: a show may write it too -- GRID and HYPER
+; inverse-flash on a hard hit -- so this way the effect takes the register
+; back on the next frame instead of the two fighting over it. When nothing
+; is inverting, the register is left alone.
 ;----------------------------------------------------------------------
-STROBE_HALF equ 8
+STROBE_HALF equ 8               ; frames an inversion holds, and the floor
+STROBE_MAX  equ 40              ; and the other end of what a knob may set
 
-strobe_frame:
+fx_frame:
+    tst.w   fx_flash            ; one inverted frame, then hand the register
+    beq.s   .nofl               ; back -- a flash that forgot to would stick
+    subq.w  #1,fx_flash
+    beq.s   .back
+    move.w  #$777,PALETTE_HW
+    rts
+.back:
+    move.w  #$000,PALETTE_HW
+    rts
+.nofl:
+    tst.w   strobe_sync         ; locked to the beat, not to the frame
+    beq.s   .free
+    move.w  beat_ph,d0
+    bra.s   .paint
+.free:
     tst.w   strobe_on
     beq.s   .out
-    addq.w  #1,strobe_ctr
-    cmp.w   #STROBE_HALF,strobe_ctr
-    bcs.s   .paint
-    clr.w   strobe_ctr
+    move.w  strobe_ctr,d1       ; the period lives in memory and a 68000 has
+    addq.w  #1,d1               ; no memory-to-memory compare
+    cmp.w   strobe_per,d1
+    bcs.s   .hold
+    moveq   #0,d1
     eori.w  #1,strobe_ph
+.hold:
+    move.w  d1,strobe_ctr
+    move.w  strobe_ph,d0
 .paint:
-    moveq   #0,d0
-    tst.w   strobe_ph
-    beq.s   .wr
-    move.w  #$777,d0
-.wr:
-    move.w  d0,PALETTE_HW
+    tst.w   d0
+    beq.s   .norm
+    move.w  #$777,PALETTE_HW
+    rts
+.norm:
+    move.w  #$000,PALETTE_HW
 .out:
     rts
 
-strobe_toggle:
+;----------------------------------------------------------------------
+; Everything off and the register handed back. Transport start and stop
+; both come through here: a held effect whose note-off never arrives --
+; because the tape stopped -- would otherwise stay on for good.
+;----------------------------------------------------------------------
+fx_reset:
+    clr.w   strobe_on
+    clr.w   strobe_held
+    clr.w   strobe_sync
+    clr.w   strobe_ctr
+    clr.w   strobe_ph
+    clr.w   beat_ph
+    clr.w   fx_freeze
+    clr.w   fx_flash
+    move.w  #$000,PALETTE_HW
+    rts
+
+strobe_toggle:                  ; the Z key, and command FX_STROBE
     eori.w  #1,strobe_on
     clr.w   strobe_ctr
     clr.w   strobe_ph
     move.w  #$000,PALETTE_HW    ; switching off on an inverted frame would
     rts                         ; otherwise leave the scene inverted for good
+
+;----------------------------------------------------------------------
+; One beat of the Live clock, 24 ticks in.
+;----------------------------------------------------------------------
+fx_beat:
+    eori.w  #1,beat_ph
+    rts
+
+;----------------------------------------------------------------------
+; A command off the control channel. d1 = code, d0 = strength through the
+; velocity curve -- zero for a program change, which carries no velocity.
+;
+; Codes below FX_BASE are the arrangement's own: they go to the show's
+; scene_select unchanged, so the code space is the SHOW's to define. A
+; build that carries the whole arc can make the code the frame number in
+; their sequence, which is then stable however many scenes get added.
+;----------------------------------------------------------------------
+FX_BASE     equ 100
+FX_STROBE   equ 100             ; toggle
+FX_STROBEH  equ 101             ; while held
+FX_SYNC     equ 102             ; locked to the beat, while held
+FX_FREEZE   equ 103             ; while held
+FX_FLASH    equ 104             ; one inverted frame
+
+cmd_press:
+    movem.l d0-d1/a0,-(sp)
+    cmp.w   #FX_BASE,d1
+    bcc.s   .fx
+    ifd SCENES
+    exg     d0,d1               ; scene_select takes the code in d0 and the
+    bsr     scene_select        ; strength in d1, which a show may ignore
+    endif
+    bra.s   .out
+.fx:
+    cmp.w   #FX_STROBE,d1
+    bne.s   .h
+    bsr     strobe_toggle
+    bra.s   .out
+.h:
+    cmp.w   #FX_STROBEH,d1
+    bne.s   .s
+    move.w  #1,strobe_on
+    move.w  #1,strobe_held
+    clr.w   strobe_ctr
+    clr.w   strobe_ph
+    bra.s   .out
+.s:
+    cmp.w   #FX_SYNC,d1
+    bne.s   .f
+    move.w  #1,strobe_sync
+    bra.s   .out
+.f:
+    cmp.w   #FX_FREEZE,d1
+    bne.s   .fl
+    move.w  #1,fx_freeze
+    bra.s   .out
+.fl:
+    cmp.w   #FX_FLASH,d1
+    bne.s   .out
+    move.w  #2,fx_flash         ; one inverted frame, then the frame that
+.out:                           ; gives the register back
+    movem.l (sp)+,d0-d1/a0
+    rts
+
+;----------------------------------------------------------------------
+; The note-off of a held effect. A toggled strobe is not touched: letting
+; go of a hold must not cancel a strobe somebody switched on deliberately.
+;----------------------------------------------------------------------
+cmd_release:
+    cmp.w   #FX_STROBEH,d1
+    bne.s   .s
+    tst.w   strobe_held
+    beq.s   .out
+    clr.w   strobe_held
+    clr.w   strobe_on
+    move.w  #$000,PALETTE_HW
+    rts
+.s:
+    cmp.w   #FX_SYNC,d1
+    bne.s   .f
+    clr.w   strobe_sync
+    clr.w   beat_ph
+    move.w  #$000,PALETTE_HW
+    rts
+.f:
+    cmp.w   #FX_FREEZE,d1
+    bne.s   .out
+    clr.w   fx_freeze
+.out:
+    rts
+
+;----------------------------------------------------------------------
+; A controller on the control channel. d1 = number, d0 = value 0..127.
+; The values are kept for any show that wants them; the one the core acts
+; on itself is the strobe period, clamped so a knob cannot reach the band
+; the strobe is rate-limited away from.
+;----------------------------------------------------------------------
+CC_STROBE   equ 1
+
+cmd_cc:
+    movem.l d0-d2/a0,-(sp)
+    cmp.w   #8,d1
+    bcc.s   .out                ; CC 0..7 are kept, the rest ignored
+    lea     cc_val,a0
+    move.b  d0,(a0,d1.w)
+    cmp.w   #CC_STROBE,d1
+    bne.s   .out
+    move.w  d0,d2               ; 0..127 across STROBE_HALF..STROBE_MAX
+    mulu    #STROBE_MAX-STROBE_HALF,d2
+    divu    #127,d2
+    and.l   #$ffff,d2
+    add.w   #STROBE_HALF,d2
+    move.w  d2,strobe_per
+.out:
+    movem.l (sp)+,d0-d2/a0
+    rts
 
 ;----------------------------------------------------------------------
     section data
@@ -632,8 +862,18 @@ isr_disp:       ds.w 1
 overrun_disp:   ds.w 1
 window_ctr:     ds.w 1
 strobe_on:      ds.w 1
+strobe_held:    ds.w 1
+strobe_sync:    ds.w 1
 strobe_ctr:     ds.w 1
 strobe_ph:      ds.w 1
+strobe_per:     ds.w 1
+beat_ph:        ds.w 1
+clk_tick:       ds.w 1
+clk_beat:       ds.w 1
+fx_freeze:      ds.w 1
+fx_flash:       ds.w 1
+cc_val:         ds.b 8
+    even
 midi_status:    ds.b 1
 midi_d1:        ds.b 1
     even

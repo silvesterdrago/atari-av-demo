@@ -163,6 +163,22 @@ TUNNEL_PERSP = '''    zs = []
 # moves more than three rows out of four hundred, on lines 3 to 13 px thick.
 # pit() passes its own depths, so this leaves it alone.
 
+
+# The phase step was the constant 1.42 whatever depths it was handed, so a
+# scene passing its own set -- pit's step by about 1.35 -- marched its lines
+# at a ratio its data does not have, and its loop missed by 18728 pixels. The
+# step is now the set's OWN ratio unless one is given, so the data and the
+# motion cannot disagree again, and pit's depths become geometric between the
+# two ends it already had.
+FLOOR_STEP = [
+    ("          horizon=True, hole=None, dip=0.0):",
+     "          horizon=True, hole=None, dip=0.0, step=None):"),
+    ("    zz = [z * (1.42 ** (-phase)) for z in zs] + [zs[-1] * 1.42 ** (1 - phase)]",
+     "    step = step or (zs[-1] / zs[0]) ** (1 / (len(zs) - 1))\n"
+     "    zz = [z * (step ** (-phase)) for z in zs] + [zs[-1] * step ** (1 - phase)]"),
+    ("zs=(1, 1.35, 1.8, 2.45, 3.3, 4.5)",
+     "zs=tuple(4.5 ** (_k / 5) for _k in range(6))"),
+]
 # The floor family is laid out in absolute rows -- HZ=110 is the horizon and
 # F=250 the focal length -- so rewriting W, H, S leaves it drawn for a
 # 360-row canvas on our 400-row one: the near transverse line lands on row 360
@@ -197,6 +213,9 @@ def sysmod(h=H, mitre=False):
     src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
     assert src.count(FLOOR_ZS) == 1, "the floor's depth set moved"
     src = src.replace(FLOOR_ZS, FLOOR_GEOM, 1)
+    for _old, _new in FLOOR_STEP:
+        assert src.count(_old) == 1, f"the floor's {_old!r} moved"
+        src = src.replace(_old, _new, 1)
     for _old, _new in FLOOR_Y:
         assert src.count(_old) == 1, f"the floor's {_old!r} moved"
         src = src.replace(_old, _new.format(vs=h / 360), 1)

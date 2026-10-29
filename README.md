@@ -108,7 +108,26 @@ make run-show-live SHOW=SPARKS  # run one with all MIDI devices
 ```
 
 Any key is a full-strength hit on one of the eight pads, so a show can be
-driven with nothing plugged in.
+driven with nothing plugged in. `Z` turns the strobe on and off over whatever
+scene is running; `ESC` quits.
+
+### The strobe, over any scene
+
+Inverting the whole display is one word to the palette register, so the strobe
+costs nothing and lives in the core rather than in a scene: every show on the
+core has it. It holds a fixed rate, one inversion every 8 frames, which is 4.5
+Hz on the glass -- and that rate is deliberately not a build flag, see
+*Safety*. `-DSTROBE=1` boots with it already running.
+
+While it runs, the core writes the palette every frame rather than only on the
+turns, because a show may write it too: `GRID` and `HYPER` inverse-flash on a
+hard hit. Writing every frame means the strobe takes the register back on the
+next one instead of the two fighting over it. Toggling off writes black
+explicitly, or switching off on an inverted frame would leave the scene
+inverted for good.
+
+Measured on the emulator, sampling the sky above the horizon frame by frame:
+eight inverted, eight normal, exactly as set.
 
 **Caveat worth knowing:** `src/core/` was copied out of `src/main.s` rather
 than extracted from underneath it, so the two share code by duplication for
@@ -517,6 +536,11 @@ CMake's symbol check fails, and portmidi is reported as simply "not found".
 `-DCMAKE_OSX_ARCHITECTURES=arm64` is the fix.
 
 ## Safety
+
+The strobe on `Z` toggles the display every 8 frames: 8.9 transitions and 4.5
+full cycles a second. The palette register will flip every frame at 71 Hz if
+asked, and 15-25 Hz is where photosensitive seizure risk peaks, so the rate
+sits in one place in `src/core/tail.s` and is not reachable from a build flag.
 
 Scene 4 flashes the whole screen. It is gated on the envelope and limited to a
 toggle every 8 frames (~8.9 Hz), deliberately under the 15-25 Hz band where

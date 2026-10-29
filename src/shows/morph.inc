@@ -23,6 +23,12 @@
 ;  moves them to switch acts, and the engine is otherwise unaware there is
 ;  more than one.
 ;
+;  mo_force makes the next frame redraw even if the shape has not changed,
+;  for a set that let something else paint the screen in between. `prev` is
+;  NOT cleared for that: it is the engine's only record of what the two
+;  buffers hold, and without it the per-slot wipe clears just the new boxes
+;  and leaves everything else standing.
+;
 ;  mo_arc turns the cycle off. A build whose compositions are addressed one
 ;  by one -- by an arrangement, rather than by running an act's loop --
 ;  morphs from WHAT IS ON THE SCREEN to a commanded composition and holds
@@ -65,6 +71,7 @@ mo_init:
     clr.w   cstate
     clr.w   ph
     clr.w   mo_arc
+    clr.w   mo_force
     clr.w   to_state
     lea     keys,a0             ; the screen starts on the table's first row,
     lea     from,a1             ; so a first commanded morph leaves from a
@@ -167,6 +174,11 @@ mo_frame:
     dbra    d7,.coord
 
     ; --- nothing to do if this buffer already holds this shape
+    tst.w   mo_force            ; unless something else has been on the screen
+    beq.s   .cmp                ; since: the shape may be identical and the
+    clr.w   mo_force            ; picture still wrong
+    bra     .changed
+.cmp:
     move.w  which,d0
     mulu    #NSLOT*NWORD*2,d0
     lea     prev,a4
@@ -575,6 +587,7 @@ cstate:         ds.w 1
 st_lo:          ds.w 1
 st_hi:          ds.w 1
 mo_arc:         ds.w 1
+mo_force:       ds.w 1
 to_state:       ds.w 1
 from:           ds.w NSLOT*NWORD
 ph:             ds.w 1

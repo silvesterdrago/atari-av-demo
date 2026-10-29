@@ -37,7 +37,9 @@
 ;  WHAT IS ON THE SCREEN to the commanded composition and holds there, so
 ;  the arrangement decides every transition. That is what mo_arc does.
 ;
-;  -DGOTO=<position> opens on that position instead of on black.
+;  -DGOTO=<position> opens on that position instead of on black, and
+;  -DCYCLE=<frames> walks the rehearsal list by itself -- both are for
+;  measuring with MIDI and the keyboard out of the loop.
 ;
 ;  All the .DAT files must sit beside the binary.
 ;======================================================================
@@ -103,6 +105,21 @@ show_init:
 
 ;----------------------------------------------------------------------
 show_frame:
+    ifd CYCLE
+    addq.w  #1,cyc_ctr
+    cmp.w   #CYCLE,cyc_ctr
+    bcs.s   .nocyc
+    clr.w   cyc_ctr
+    move.w  cyc_pos,d0
+    addq.w  #1,d0
+    cmp.w   #9,d0
+    bcs.s   .cycok
+    moveq   #0,d0
+.cycok:
+    move.w  d0,cyc_pos
+    bsr     scene_key
+.nocyc:
+    endif
     tst.w   loading             ; a loop on its way in, a chunk a frame
     beq.s   .noload
     bsr     load_step
@@ -260,25 +277,27 @@ dis_table:
     rts
 
 ;----------------------------------------------------------------------
-; Hand the screen back to the morph family. Its two buffers still hold
-; whatever they held before the loop played over them, and `prev` agrees
-; with them -- so without clearing it the engine would decide nothing had
-; changed and never redraw.
+; Hand the screen back to the morph family. Its two buffers still hold the
+; last composition and `prev` still describes it exactly, so prev is left
+; ALONE -- clearing it was the bug: the engine wipes per slot, by what prev
+; says each buffer holds, and with that record gone it cleared only the new
+; boxes and left the old composition standing around them.
+;
+; What does have to be forced is the redraw itself, since the shape may be
+; the one that was there before the loop played over it. And `back` has to
+; be taken off whatever the break-up left it pointing at -- it shares that
+; variable with us -- back to the buffer that which=0 pairs with.
 ;----------------------------------------------------------------------
 to_morph:
-    movem.l d0-d1/a0,-(sp)
+    movem.l d0-d1,-(sp)
     clr.w   kind
     bsr     load_abort
-    lea     prev,a0
-    move.w  #(2*NSLOT*NWORD)-1,d0
-.zap:
-    clr.w   (a0)+
-    dbra    d0,.zap
-    move.l  screen1,back
-    clr.w   which
-    move.l  screen0,d0
+    move.w  #1,mo_force
+    move.l  screen1,back        ; the break-up leaves `back` in a work buffer
+    clr.w   which               ; of its own, and which=0 pairs with screen1 --
+    move.l  screen0,d0          ; that pairing is what keeps prev honest
     bsr     set_screen_base
-    movem.l (sp)+,d0-d1/a0
+    movem.l (sp)+,d0-d1
     rts
 
 ;----------------------------------------------------------------------
@@ -486,4 +505,8 @@ fphase:         ds.w 1
 fspeed:         ds.w 1
 stamped:        ds.w 1
 kind:           ds.w 1          ; 0 the morph family, 1 a baked loop
+    ifd CYCLE
+cyc_ctr:        ds.w 1
+cyc_pos:        ds.w 1
+    endif
     even

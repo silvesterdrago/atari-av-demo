@@ -13,9 +13,13 @@
 ;    MORPH      acts I, II, III, VII, VIII. No data at all -- trapezoid
 ;               keyframes in src/shows/acts*.inc, the same files the
 ;               standalone binaries read. Switching is one frame.
-;    DISSOLVE   position 49, which breaks the corridor's own screens apart
-;               live. It is the flipbook family plus a composition pass, so
-;               it shares the buffer and the corridor's file with 18.
+;    DISSOLVE   positions 49, 50 and 52. The same engine over different
+;               screens and different tables: 49 breaks the corridor apart,
+;               50 the tunnel, and 52 punches the corridor full of holes --
+;               a table whose blocks have no displacement, which the engine
+;               reads as a cut. All three are the flipbook family plus a
+;               composition pass, so they share the buffer and 49 and 52
+;               share the corridor's file with 18.
 ;    FLIPBOOK   the baked loops, 24 screens of 32000 bytes each. One
 ;               shared buffer holds whichever is wanted, so entering one
 ;               costs reading 768 KB off the card -- about two seconds on
@@ -33,7 +37,9 @@
 ;  WHAT IS ON THE SCREEN to the commanded composition and holds there, so
 ;  the arrangement decides every transition. That is what mo_arc does.
 ;
-;  All six .DAT files must sit beside the binary.
+;  -DGOTO=<position> opens on that position instead of on black.
+;
+;  All the .DAT files must sit beside the binary.
 ;======================================================================
 SCENES      equ 1               ; the core sends commands to scene_select
 HAS_SCENE_KEY equ 1             ; and the number keys through our own list
@@ -86,8 +92,12 @@ show_init:
     clr.w   stamped
     clr.w   kind
     bsr     mo_init
-    moveq   #1,d0               ; position 1: black
-    moveq   #0,d1
+    ifd GOTO
+    move.w  #GOTO,d0            ; -DGOTO=<position> opens on one, which is how
+    else                        ; a position is checked with MIDI out of the
+    moveq   #1,d0               ; loop entirely -- the emulator's MIDI is too
+    endif                       ; lossy to be the instrument
+    moveq   #100,d1
     bsr     scene_select
     rts
 
@@ -151,10 +161,14 @@ scene_select:
     bne.s   .nostamp
     moveq   #1,d4               ; position 14 wants the block
 .nostamp:
-    moveq   #0,d7
+    moveq   #0,d7               ; 0 plain, 1 the break-up, 2 holes punched
     cmp.w   #4,d2
+    bne.s   .nob
+    moveq   #1,d7
+.nob:
+    cmp.w   #5,d2
     bne.s   .nodis
-    moveq   #1,d7               ; position 49 wants the break-up
+    moveq   #2,d7
 .nodis:
     move.w  d0,d3
     lsl.w   #2,d0
@@ -188,7 +202,9 @@ scene_select:
     bsr     set_stamp
     tst.w   d7
     beq     .out
-    bsr     dis_init            ; its table and its two work buffers
+    move.w  d7,d0
+    bsr     dis_table           ; which table this position breaks it with
+    bsr     dis_init            ; it, and the two work buffers
     move.w  #KIND_DIS,kind
     bra     .out
 
@@ -228,6 +244,19 @@ scene_key:
     bsr     scene_select
 .out:
     movem.l (sp)+,d0-d1/a0
+    rts
+
+;----------------------------------------------------------------------
+; d0 = 1 for the break-up, 2 for the holes. Points the engine at one table
+; or the other before it loads one; the format is the same, and a block with
+; no displacement in it is what the engine reads as a cut.
+;----------------------------------------------------------------------
+dis_table:
+    move.l  #dis_name,dis_tab
+    cmp.w   #2,d0
+    bne.s   .out
+    move.l  #cut_name,dis_tab
+.out:
     rts
 
 ;----------------------------------------------------------------------
@@ -303,6 +332,8 @@ load_step:
     bsr     set_stamp
     tst.w   ld_dis
     beq.s   .out
+    move.w  ld_dis,d0
+    bsr     dis_table
     bsr     dis_init
     move.w  #KIND_DIS,kind
     bra.s   .out
@@ -397,8 +428,8 @@ pos_tbl:
     dc.w    $0000, $0000, $0000, $0000, $0000       ;      32-36
     dc.w    $0000, $0000, $0000, $0202              ;      37-40 wave
     dc.w    $0000, $0000, $0204, $0203, $0000       ; VI   41-45
-    dc.w    $0000, $0000, $0000, $0400, $0000       ;      46-50, 49 dissolve
-    dc.w    $0000, $0000, $0000, $0000, $0000       ;      51-55
+    dc.w    $0000, $0000, $0000, $0400, $0401       ;      46-50
+    dc.w    $0000, $0500, $0000, $0000, $0000       ;      51-55, 52 holes
     dc.w    $0000, $0000                            ;      56, 57
     dc.w    $0111, $0112, $0113, $0114, $0115       ; VII  58-62
     dc.w    $0116, $0117, $0118                     ; VIII 63-65
@@ -418,6 +449,8 @@ nm_desy:    dc.b "DESYNC.DAT",0
 nm_drift:   dc.b "DRIFT.DAT",0
     even
 nm_floor:   dc.b "FLOOR.DAT",0
+    even
+cut_name:   dc.b "CUTS.DAT",0
     even
 
 keys:

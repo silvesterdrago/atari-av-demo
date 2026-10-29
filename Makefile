@@ -117,6 +117,10 @@ dist/DRIFT.DAT: src/drift.bin | dist
 	cp $< $@
 dist/DISSOLVE.DAT: src/dis.bin | dist
 	cp $< $@
+dist/CUTS.DAT: src/cut.bin | dist
+	cp $< $@
+src/cut.bin: tools/gendis.py tools/sysload.py
+	python3 tools/gendis.py cuts
 dist/FLOOR.DAT: src/floor.bin | dist
 	cp $< $@
 src/corr.bin: tools/genflip.py tools/sysload.py
@@ -170,7 +174,8 @@ $(MULTIC): src/multic.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
 dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
-     dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT
+     dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT \
+     dist/CUTS.DAT
 
 # Watch it switch. The number keys drive the rehearsal list; the MIDI pipe is
 # set up too, so tools/pos.py can send positions from another terminal.

@@ -34,6 +34,10 @@
 ;
 ;  Both CORRIDOR.DAT (the frames) and DISSOLVE.DAT (the table) must sit
 ;  beside the binary.
+;
+;  A block whose displacement is zero is a CUT: blanked and never laid back.
+;  Nothing else in a table ever has one, so the two scenes -- the break-up and
+;  the corridor punched full of holes -- are one engine and two tables.
 ;---================================================================
     ifnd SCENES
 POOL_SIZE   equ 1024            ; no noise, no scrolling window
@@ -101,7 +105,7 @@ dis_init:
     beq     .out
     endif
 
-    lea     dis_name,a0         ; the table
+    move.l  dis_tab,a0          ; the table; a set may point this elsewhere
     lea     tab,a1
     move.l  #TABSZ,d1
     bsr     load_file
@@ -373,6 +377,9 @@ apply_block:
     add.w   d7,a0
     dbra    d5,.b12
 .blanked:
+    move.w  -4(a3),d6           ; a block declared with no displacement at all
+    or.w    -2(a3),d6           ; is a CUT: the hole stays and nothing is laid
+    beq     .laid               ; back. Their frame 52 is a whole table of them
     move.w  d3,d5               ; the tile always lands: the blank it left is
     cmp.w   #8,d2               ; the black gap, so nothing is ever removed
     bne.s   .c12
@@ -406,6 +413,8 @@ cor_name:
     dc.b    "CORRIDOR.DAT",0
     even
     endif
+dis_tab:    dc.l dis_name
+    even
 dis_name:
     dc.b    "DISSOLVE.DAT",0
     even

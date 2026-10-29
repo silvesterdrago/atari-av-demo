@@ -43,17 +43,23 @@ probability.
 import math
 import random
 import struct
+import sys
 from PIL import Image
 from sysload import H, W, sysmod
+
+# `cuts` makes the same table with every displacement at zero, which the ST
+# reads as a block that is blanked and never laid back: their frame 52, the
+# corridor punched full of holes. One table format, two scenes.
+CUTS = len(sys.argv) > 1 and sys.argv[1] == "cuts"
 
 AMTFULL = 4096          # all four must match src/shows/dissolve.s
 NLEV = 6
 MAXBLK = 16
 COUNTS = (4, 6, 9, 11, 14, 16)
 RMIN = (0.78, 0.62, 0.47, 0.32, 0.16, 0.0)      # how far in each level reaches
-OUT = "src/dis.bin"
-GIF = "dis_preview.gif"
-SHEET = "dis_levels.png"
+OUT = "src/cut.bin" if CUTS else "src/dis.bin"
+GIF = ("cut_preview.gif" if CUTS else "dis_preview.gif")
+SHEET = ("cut_levels.png" if CUTS else "dis_levels.png")
 
 
 def level(j):
@@ -77,8 +83,11 @@ def level(j):
         if r < RMIN[j]:
             continue                    # clamping into the frame pulls a block
                                         # inward, past its level's floor
-        ux = rnd.choice((-96, -64, -48, -32, 32, 48, 64, 96))
-        uy = rnd.choice((-1, 1)) * rnd.randint(14, 44)
+        if CUTS:
+            ux = uy = 0
+        else:
+            ux = rnd.choice((-96, -64, -48, -32, 32, 48, 64, 96))
+            uy = rnd.choice((-1, 1)) * rnd.randint(14, 44)
         ux = max(-x, min(ux, W - w - x)) // 16 * 16
         uy = max(-y, min(uy, H - h - y))
         out.append((r, x, y, w, h, ux, uy))
@@ -103,8 +112,9 @@ tab = struct.pack(">H", NLEV)
 for lv in levels:
     tab += struct.pack(">H", len(lv))
     for _, x, y, w, h, ux, uy in lv:
-        assert x % 16 == ux % 16 == 0 and w in (64, 96)   # dissolve.s has a
-                                                          # row per width
+        assert x % 16 == 0 and ux % 16 == 0 and w in (64, 96)   # dissolve.inc
+                                                                # has a row
+                                                                # per width
         assert 0 <= x and x + w <= W and 0 <= y and y + h <= H
         assert 0 <= x + ux and x + ux + w <= W
         assert 0 <= y + uy and y + uy + h <= H

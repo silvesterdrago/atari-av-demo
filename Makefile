@@ -172,6 +172,13 @@ dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
      dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT
 
+# Watch it switch: a window, the number keys for the rehearsal list, and the
+# MIDI pipe ready so tools/pos.py can send positions from another terminal.
+run-arc: arc fifo
+	$(HATARI_BIN) --tos $(TOS) --machine st --memsize 1 --monitor mono \
+	              --sound off --gemdos-drive C -d dist --auto 'C:\ARC.TOS' \
+	              $(MIDIOPTS)
+
 multi: $(MULTI) $(MULTIB) $(MULTIC)
 	@ls -la $(MULTI) $(MULTIB) $(MULTIC) $(DATS)
 

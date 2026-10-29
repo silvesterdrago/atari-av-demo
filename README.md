@@ -159,6 +159,38 @@ file-based MIDI drops most of a burst -- 4 bytes of 14 got through in the first
 run, which is why the test sends each message forty times -- so hold-style
 effects have to be confirmed on the machine.
 
+### Watching it switch
+
+```
+make run-arc
+```
+
+A window, the whole arc, and the number keys driving a rehearsal list that
+covers every kind of switch there is:
+
+| key | position | |
+|---|---|---|
+| 1 | 01 black | morph |
+| 2 | 05 square | morph |
+| 3 | 11 verticals | morph |
+| 4 | 15 nested squares | morph |
+| 5 | 16 steps | morph |
+| 6 | 18 corridor | reads the card |
+| 7 | 44 desync | reads the card |
+| 8 | 49 dissolve | the corridor's own file, so after 6 it reads nothing |
+| 9 | 58 compression | morph |
+
+`Z` is the strobe, `ESC` quits, any other key is a hit -- which is what drives
+the break-up on 8. The MIDI pipe is set up by the same target, so positions can
+also be sent from another terminal while it runs:
+
+```
+tools/pos.py 15 --fifo /tmp/noiseav.midi
+```
+
+Expect a second or two of lag there and the odd command to go missing: that is
+the emulator's file MIDI trickling, not the show. The keys have none of it.
+
 ### Sending a position
 
 `tools/pos.py` sends a position, an effect or transport on the control

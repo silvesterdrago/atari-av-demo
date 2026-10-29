@@ -577,7 +577,7 @@ poll_keyboard:
     bhi.s   .hit
     sub.w   #'1',d1
     move.w  d1,d0
-    bsr     scene_select
+    bsr     scene_key           ; 0..8; a set may map these to anything
     rts
 .hit:
     endif
@@ -598,6 +598,20 @@ poll_keyboard:
 .strobe:
     bsr     strobe_toggle
     rts
+
+;----------------------------------------------------------------------
+; The number keys, for driving a set with no MIDI at all. A build whose
+; codes are not simply 0..8 -- ARC addresses positions in the storyboard --
+; defines HAS_SCENE_KEY and maps them itself.
+;----------------------------------------------------------------------
+    ifnd HAS_SCENE_KEY
+scene_key:
+    ifd SCENES
+    bra     scene_select
+    else
+    rts
+    endif
+    endif
 
 ;----------------------------------------------------------------------
 ; Effects. All of them live here rather than in a show, because the things

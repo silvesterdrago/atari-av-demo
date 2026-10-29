@@ -36,6 +36,7 @@
 ;  All six .DAT files must sit beside the binary.
 ;======================================================================
 SCENES      equ 1               ; the core sends commands to scene_select
+HAS_SCENE_KEY equ 1             ; and the number keys through our own list
 POOL_SIZE   equ 1024
 RANGE_PAGES equ 131             ; two whole screens for the morph family
 
@@ -205,6 +206,28 @@ scene_select:
     bsr     mo_goto
 .out:
     movem.l (sp)+,d0-d7/a0-a2
+    rts
+
+;----------------------------------------------------------------------
+; d0 = 0..8 off the number keys. They cannot carry a position between 1 and
+; 66, so they carry a rehearsal list instead: enough of both families to
+; watch every kind of switch there is, including 6 -> 8, which share the
+; corridor's file and so read nothing.
+;----------------------------------------------------------------------
+key_list:
+    dc.w    1, 5, 11, 15, 16, 18, 44, 49, 58
+
+scene_key:
+    movem.l d0-d1/a0,-(sp)
+    cmp.w   #9,d0
+    bcc.s   .out
+    add.w   d0,d0
+    lea     key_list,a0
+    move.w  0(a0,d0.w),d0
+    moveq   #100,d1             ; a key enters at a middling strength
+    bsr     scene_select
+.out:
+    movem.l (sp)+,d0-d1/a0
     rts
 
 ;----------------------------------------------------------------------

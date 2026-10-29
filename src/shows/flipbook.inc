@@ -11,6 +11,10 @@
 ;  choose: the frames are read at start-up into a buffer rounded up to
 ;  one. 24 x 32000 is 750 KB, which a 1 MB machine holds exactly once,
 ;  so a flipbook scene cannot share a binary with another.
+;
+;  A scene defining FB_STAMP supplies fb_stamp, called once after the read:
+;  two scenes that differ by a fixed mark then share one .DAT instead of
+;  shipping 750 KB twice over.
 ;======================================================================
 POOL_SIZE   equ 1024            ; no noise, no scrolling window
 RANGE_PAGES equ 1
@@ -59,6 +63,9 @@ show_init:
     cmp.l   #NFRAMES*FRAMESZ,d1
     bne.s   .nofile             ; a short read is not our file
     move.w  #1,fb_ready
+    ifd FB_STAMP
+    bsr     fb_stamp            ; a scene that is this one plus a fixed mark
+    endif
     move.l  frame0,d0           ; show the first one immediately
     bsr     set_screen_base
 .nofile:                        ; no file leaves the scene blank, but quiet

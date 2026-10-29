@@ -84,6 +84,11 @@ dist/DESYNC.TOS:   dist/DESYNC.DAT
 dist/DRIFT.TOS:    dist/DRIFT.DAT
 dist/DISSOLVE.TOS: dist/DISSOLVE.DAT dist/CORRIDOR.DAT
 dist/FLOOR.TOS:    dist/FLOOR.DAT
+# Frame 14 is frame 13 plus a block on the horizon, stamped into the frames
+# at start-up, so it shares FLOOR.DAT rather than shipping another 750 KB.
+SHOW_BINS += dist/FIELD.TOS
+dist/FIELD.TOS: src/shows/floor.s $(SHOW_DEPS) dist/FLOOR.DAT | $(VASM) dist
+	$(VASM) -Ftos -quiet -DPOINT=1 -o $@ $<
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every

@@ -161,7 +161,20 @@ TUNNEL_PERSP = '''    zs = []
 # by 15778 pixels. Made exactly geometric, the set maps onto itself under the
 # step the generator already uses and the loop closes to the pixel. Nothing
 # moves more than three rows out of four hundred, on lines 3 to 13 px thick.
-# pit() passes its own depths, so this leaves it alone.
+#
+# The set also runs ten deep rather than six, and zfar with it. Six ends 37 to
+# 54 rows short of the horizon, and since the generator adds exactly ONE depth
+# beyond the set, the line that closes that gap has to appear inside the frame:
+# on the machine it materialised 16 rows from its neighbour partway through
+# every turn. Ten fills the gap with a converging fan and the arrival stops
+# reading as one. Twelve was built and compared too -- it leaves the same gap
+# and only melts the fan into a blob at the vanishing point.
+#
+# zfar has to stay inside [1.42**(n-1), 1.42**n): at the top of that range the
+# one extra depth is drawn at phase 0 and gone at phase 1, and the loop stops
+# closing. So the reach of the set is the only lever on the arrival.
+#
+# pit() passes its own depths and zfar, so this leaves it alone.
 
 
 # The phase step was the constant 1.42 whatever depths it was handed, so a
@@ -201,8 +214,10 @@ FLOOR_Y = [
     ("    bar(d, CX - r, HZ - 4 - 2 * r, CX + r, HZ - 4)",
      "    bar(d, CX - r, HZ * _VS - 4 - 2 * r, CX + r, HZ * _VS - 4)"),
 ]
-FLOOR_ZS = "zs=(1, 1.4, 2.0, 2.9, 4.2, 6.2)"
-FLOOR_GEOM = "zs=tuple(1.42 ** _k for _k in range(6))"
+FLOOR_DEPTHS = [
+    ("zs=(1, 1.4, 2.0, 2.9, 4.2, 6.2)", "zs=tuple(1.42 ** _k for _k in range(10))"),
+    ("zfar=6.5", "zfar=1.42 ** 9.5"),
+]
 
 
 def sysmod(h=H, mitre=False):
@@ -211,8 +226,9 @@ def sysmod(h=H, mitre=False):
         return _MODS[key]
     src = open(os.path.join(SRC, "system.py")).read()
     src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
-    assert src.count(FLOOR_ZS) == 1, "the floor's depth set moved"
-    src = src.replace(FLOOR_ZS, FLOOR_GEOM, 1)
+    for _old, _new in FLOOR_DEPTHS:
+        assert src.count(_old) == 1, f"the floor's {_old!r} moved"
+        src = src.replace(_old, _new, 1)
     for _old, _new in FLOOR_STEP:
         assert src.count(_old) == 1, f"the floor's {_old!r} moved"
         src = src.replace(_old, _new, 1)

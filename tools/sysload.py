@@ -162,6 +162,29 @@ TUNNEL_PERSP = '''    zs = []
 # step the generator already uses and the loop closes to the pixel. Nothing
 # moves more than three rows out of four hundred, on lines 3 to 13 px thick.
 # pit() passes its own depths, so this leaves it alone.
+
+# The floor family is laid out in absolute rows -- HZ=110 is the horizon and
+# F=250 the focal length -- so rewriting W, H, S leaves it drawn for a
+# 360-row canvas on our 400-row one: the near transverse line lands on row 360
+# and stands there as a bar forty rows short of the bottom edge.
+#
+# Only the vertical is scaled, and it is scaled in the PROJECTION rather than
+# in the constants. Scaling F itself would spread the floor sideways too,
+# while the corridor -- whose cross-section is defined in W and H -- stretches
+# vertically and keeps its width; the floor has to agree with it. Scaling
+# inside fpt also follows every override, so pit's own HZ, F = 18, 300 comes
+# out right without naming it here. Line weights are left alone: thickness is
+# the one line-weight family of the set, not a dimension of the drawing.
+FLOOR_Y = [
+    ("HZ, F = 110, 250",
+     "HZ, F = 110, 250\n_VS = {vs!r}            # our 400 rows against their 360"),
+    ("    return vx + X * F / Z, HZ + (1 + Y) * F / Z",
+     "    return vx + X * F / Z, (HZ + (1 + Y) * F / Z) * _VS"),
+    ("        bar(d, 0, HZ - 4, W, HZ + 4)",
+     "        bar(d, 0, HZ * _VS - 4, W, HZ * _VS + 4)"),
+    ("    bar(d, CX - r, HZ - 4 - 2 * r, CX + r, HZ - 4)",
+     "    bar(d, CX - r, HZ * _VS - 4 - 2 * r, CX + r, HZ * _VS - 4)"),
+]
 FLOOR_ZS = "zs=(1, 1.4, 2.0, 2.9, 4.2, 6.2)"
 FLOOR_GEOM = "zs=tuple(1.42 ** _k for _k in range(6))"
 
@@ -174,6 +197,9 @@ def sysmod(h=H, mitre=False):
     src = re.sub(r'^W, H, S = .*$', f'W, H, S = {W}, {h}, 1', src, count=1, flags=re.M)
     assert src.count(FLOOR_ZS) == 1, "the floor's depth set moved"
     src = src.replace(FLOOR_ZS, FLOOR_GEOM, 1)
+    for _old, _new in FLOOR_Y:
+        assert src.count(_old) == 1, f"the floor's {_old!r} moved"
+        src = src.replace(_old, _new.format(vs=h / 360), 1)
     if mitre:
         assert PLAIN in src, "corridor's corner-edge loop moved"
         assert BARS_PLAIN in src, "corridor's floor-bar thickness moved"

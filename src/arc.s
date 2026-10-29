@@ -13,6 +13,9 @@
 ;    MORPH      acts I, II, III, VII, VIII. No data at all -- trapezoid
 ;               keyframes in src/shows/acts*.inc, the same files the
 ;               standalone binaries read. Switching is one frame.
+;    DISSOLVE   position 49, which breaks the corridor's own screens apart
+;               live. It is the flipbook family plus a composition pass, so
+;               it shares the buffer and the corridor's file with 18.
 ;    FLIPBOOK   the baked loops, 24 screens of 32000 bytes each. One
 ;               shared buffer holds whichever is wanted, so entering one
 ;               costs reading 768 KB off the card -- about two seconds on
@@ -50,6 +53,9 @@ MORPH       equ 130             ; frames a transition takes
 NFRAMES     equ 24              ; must match tools/genflip.py
 FRAMESZ     equ 32000
 SETSZ       equ NFRAMES*FRAMESZ
+KIND_MORPH  equ 0
+KIND_LOOP   equ 1
+KIND_DIS    equ 2
 FB_WRAP     equ NFRAMES*256     ; phase is 8.8 screens, so it wraps exactly
 FB_CRUISE   equ 128             ; one screen every two frames
 FB_KICK     equ 4
@@ -90,12 +96,16 @@ show_frame:
     beq.s   .noload
     bsr     load_step
 .noload:
-    tst.w   kind
-    bne     fb_frame
-    bra     mo_frame
+    move.w  kind,d0
+    beq     mo_frame
+    cmp.w   #KIND_DIS,d0
+    beq     dis_frame
+    bra     fb_frame
 
 ;----------------------------------------------------------------------
 show_note_on:                   ; d0 = strength, d1 = pad*2
+    cmp.w   #KIND_DIS,kind      ; a hit is what breaks the picture up
+    beq     dis_note_on
     tst.w   kind                ; a hit drives the loop's speed; the morph
     beq.s   .out                ; family is driven by the arrangement alone
     movem.l d0-d2,-(sp)
@@ -129,8 +139,8 @@ scene_select:
     move.w  0(a0,d0.w),d0
     beq     .out                ; a position we have not built
     move.w  d0,d2
-    lsr.w   #8,d2               ; 1 morph, 2 loop, 3 loop with the block
-    and.w   #$ff,d0
+    lsr.w   #8,d2               ; 1 morph, 2 loop, 3 loop and the block,
+    and.w   #$ff,d0             ; 4 loop and then break it apart
     cmp.w   #1,d2
     beq     .morph
 
@@ -140,6 +150,11 @@ scene_select:
     bne.s   .nostamp
     moveq   #1,d4               ; position 14 wants the block
 .nostamp:
+    moveq   #0,d7
+    cmp.w   #4,d2
+    bne.s   .nodis
+    moveq   #1,d7               ; position 49 wants the break-up
+.nodis:
     move.w  d0,d3
     lsl.w   #2,d0
     lea     name_tbl,a0
@@ -160,15 +175,20 @@ scene_select:
     move.w  d0,ld_handle
     move.l  d6,ld_file
     move.w  d4,ld_stamp
+    move.w  d7,ld_dis
     clr.l   ld_done
     move.w  #1,loading
-    move.w  #1,kind             ; the loop owns the screen from here
-    bra     .out
+    move.w  #KIND_LOOP,kind     ; the loop owns the screen from here, and
+    bra     .out                ; plays the screens as they land
 .entered:
-    move.w  #1,kind
+    move.w  #KIND_LOOP,kind
     move.w  #1,fb_ready
     move.w  d4,d0
     bsr     set_stamp
+    tst.w   d7
+    beq     .out
+    bsr     dis_init            ; its table and its two work buffers
+    move.w  #KIND_DIS,kind
     bra     .out
 
 ;---- a composition of the morph family
@@ -258,6 +278,10 @@ load_step:
     move.w  #1,fb_ready
     move.w  ld_stamp,d0
     bsr     set_stamp
+    tst.w   ld_dis
+    beq.s   .out
+    bsr     dis_init
+    move.w  #KIND_DIS,kind
     bra.s   .out
 .short:
     bsr     load_abort
@@ -332,6 +356,8 @@ fb_frame:
     rts
 
 ;----------------------------------------------------------------------
+    include "src/shows/dissolve.inc"
+
     section data
     even
 ; What lives at each of their 66 positions: 0 nothing, $01xx a composition
@@ -348,7 +374,7 @@ pos_tbl:
     dc.w    $0000, $0000, $0000, $0000, $0000       ;      32-36
     dc.w    $0000, $0000, $0000, $0202              ;      37-40 wave
     dc.w    $0000, $0000, $0204, $0203, $0000       ; VI   41-45
-    dc.w    $0000, $0000, $0000, $0000, $0000       ;      46-50
+    dc.w    $0000, $0000, $0000, $0400, $0000       ;      46-50, 49 dissolve
     dc.w    $0000, $0000, $0000, $0000, $0000       ;      51-55
     dc.w    $0000, $0000                            ;      56, 57
     dc.w    $0111, $0112, $0113, $0114, $0115       ; VII  58-62
@@ -398,6 +424,7 @@ ld_done:        ds.l 1
 ld_handle:      ds.w 1
 ld_stamp:       ds.w 1
 loading:        ds.w 1
+ld_dis:         ds.w 1
 fb_ready:       ds.w 1
 fphase:         ds.w 1
 fspeed:         ds.w 1

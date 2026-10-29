@@ -423,7 +423,10 @@ frame0:         ds.l 1
     endif
 work0:          ds.l 1
 work1:          ds.l 1
-back:           ds.l 1
+    ifnd HAS_BACK               ; a build that also carries the morph engine
+back:           ds.l 1          ; already has one, and the two are never
+    endif                       ; composing at the same time
+
 csrc:           ds.l 1
 cbase:          ds.l 1
     ifnd SCENES

@@ -170,7 +170,7 @@ $(MULTIC): src/multic.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
 dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
-     dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT
+     dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT
 
 multi: $(MULTI) $(MULTIB) $(MULTIC)
 	@ls -la $(MULTI) $(MULTIB) $(MULTIC) $(DATS)

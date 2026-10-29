@@ -29,6 +29,9 @@
 ;  there, so the transition between two commands is the morph itself and
 ;  the arrangement decides when it happens. mo_goto starts one.
 ;======================================================================
+HAS_BACK    equ 1               ; the buffer being composed into is declared
+                                ; here; dissolve.inc shares it rather than
+                                ; declaring a second one of the same name
 NWORD       equ 6               ; x0top, x1top, x0bot, x1bot, y0, y1
 STATESZ     equ NSLOT*NWORD*2
 

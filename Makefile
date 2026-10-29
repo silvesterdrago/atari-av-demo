@@ -38,7 +38,8 @@ MIDIOPTS := --midi-in $(FIFO) --midi-out /dev/null
 # src/core/. dist/NOISEAV.TOS is the older all-in-one show and is left alone.
 SHOW_SRCS := $(wildcard src/shows/*.s)
 SHOW_DEPS := src/core/head.s src/core/tail.s src/shows/flipbook.inc \
-              src/shows/dissolve.inc src/shows/morph.inc
+              src/shows/dissolve.inc src/shows/morph.inc \
+              src/shows/acts1.inc src/shows/acts2.inc src/shows/acts7.inc
 SHOW_BINS :=
 
 define SHOW_RULE

@@ -17,12 +17,20 @@
 ;  repaint in one frame drops frames instead of stretching its own morph.
 ;
 ;  A hit cuts the hold short and starts the next morph.
+;
+;  st_lo and st_hi are the live range of states. A scene on its own leaves
+;  them at the whole table; a set that carries several acts in one table
+;  moves them to switch acts, and the engine is otherwise unaware there is
+;  more than one.
 ;======================================================================
 NWORD       equ 6               ; x0top, x1top, x0bot, x1bot, y0, y1
 STATESZ     equ NSLOT*NWORD*2
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_init:
+    endif
+mo_init:
     move.l  buf_base,d0
     move.l  d0,screen0
     add.l   #SCR_SIZE,d0
@@ -43,6 +51,8 @@ show_init:
 .zap:
     clr.w   (a0)+
     dbra    d0,.zap
+    clr.w   st_lo
+    move.w  #NSTATE-2,st_hi     ; the table's last row repeats its first
     clr.w   cstate
     clr.w   ph
     move.l  VBCLOCK,t0
@@ -52,7 +62,10 @@ show_init:
     rts
 
 ;----------------------------------------------------------------------
+    ifnd SCENES
 show_frame:
+    endif
+mo_frame:
     ; The clock is frames elapsed, not passes taken. A state that cannot
     ; repaint in one frame then drops frames instead of stretching its
     ; morph out: at eight frames a pass the verticals would otherwise take
@@ -66,9 +79,9 @@ show_frame:
     add.l   #HOLD+MORPH,t0
     move.w  cstate,d1
     addq.w  #1,d1
-    cmp.w   #NSTATE-1,d1
-    bcs.s   .stok
-    moveq   #0,d1
+    cmp.w   st_hi,d1            ; the act's last live state; a set moves these
+    bls.s   .stok               ; two to switch acts, a lone scene never does
+    move.w  st_lo,d1
 .stok:
     move.w  d1,cstate
     bra.s   .roll
@@ -204,7 +217,10 @@ show_frame:
     rts
 
 ;----------------------------------------------------------------------
-show_note_on:                   ; a hit ends the hold early
+    ifnd SCENES
+show_note_on:
+    endif
+mo_note_on:                   ; a hit ends the hold early
     cmp.w   #HOLD,ph
     bcc.s   .out
     move.l  VBCLOCK,d0
@@ -506,6 +522,8 @@ prev:           ds.w 2*NSLOT*NWORD
 cur:            ds.w NSLOT*NWORD
 nbb:            ds.w 4
 cstate:         ds.w 1
+st_lo:          ds.w 1
+st_hi:          ds.w 1
 ph:             ds.w 1
 t0:             ds.l 1
 which:          ds.w 1

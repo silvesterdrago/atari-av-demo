@@ -29,6 +29,10 @@ NFRAMES = 24            # must match src/shows/flipbook.inc
 #        rows, so 52 * 400/360 keeps the waves the same size relative to the
 #        gaps they ride in.
 #  desy  dy likewise: the two halves are 16 rows out of step, not 14.
+#  floor their phase marches the transverse lines and leaves the longitudinal
+#        ones standing, which is the whole motion. The step comes from the
+#        depth set itself, so the loop closes to the pixel -- see
+#        tools/sysload.py, FLOOR_STEP.
 #  drift their axis_loss holds the vanishing point at a FIXED offset, but the
 #        loop it came from sweeps it. A full sine over the turn sweeps it out
 #        to one side and back through the other, and closes on itself.
@@ -36,6 +40,7 @@ SCENES = {"corr":  lambda s, p: s.corridor(phase=p),
           "tun":   lambda s, p: s.tunnel(phase=p, t=28),
           "wave":  lambda s, p: s.wave(phase=p, amp=58),
           "desy":  lambda s, p: s.desync(phase=p, dy=16),
+          "floor": lambda s, p: s.floor(phase=p),
           "drift": lambda s, p: s.axis_loss(phase=p,
                                             dx=round(170 * math.sin(2 * math.pi * p)),
                                             dy=round(-60 * math.sin(2 * math.pi * p)))}

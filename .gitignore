@@ -51,6 +51,9 @@ desy_preview.gif
 src/drift.bin
 drift_preview.png
 drift_preview.gif
+src/floor.bin
+floor_preview.png
+floor_preview.gif
 src/cubes4.bin
 cubes4_preview.png
 src/plasma.inc

@@ -81,6 +81,7 @@ dist/WAVE.TOS:     dist/WAVE.DAT
 dist/DESYNC.TOS:   dist/DESYNC.DAT
 dist/DRIFT.TOS:    dist/DRIFT.DAT
 dist/DISSOLVE.TOS: dist/DISSOLVE.DAT dist/CORRIDOR.DAT
+dist/FLOOR.TOS:    dist/FLOOR.DAT
 # Baked tables that travel beside the binary instead of inside it. Four
 # scenes hold 855 KB between them, which no megabyte carries at once, so a
 # set shares one buffer and reads the entered scene's file into it. Every
@@ -109,6 +110,8 @@ dist/DRIFT.DAT: src/drift.bin | dist
 	cp $< $@
 dist/DISSOLVE.DAT: src/dis.bin | dist
 	cp $< $@
+dist/FLOOR.DAT: src/floor.bin | dist
+	cp $< $@
 src/corr.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py corr
 src/tun.bin: tools/genflip.py tools/sysload.py
@@ -117,6 +120,8 @@ src/wave.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py wave
 src/desy.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py desy
+src/floor.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py floor
 src/drift.bin: tools/genflip.py tools/sysload.py
 	python3 tools/genflip.py drift
 src/dis.bin: tools/gendis.py tools/sysload.py

@@ -33,6 +33,8 @@ import time
 
 CH = 16                 # must match CTRL_CH in src/core/head.s
 CC_STROBE = 1           # and CC_STROBE in src/core/tail.s
+HIT_CH = 10             # where drums.py and the pads play
+PAD_BASE = 36           # and PAD_BASE in src/core/head.s
 PER_MIN, PER_MAX = 8, 40        # STROBE_HALF and STROBE_MAX, in frames
 VBL = 71.2
 POS_MAX = 66
@@ -121,6 +123,9 @@ def main():
     ap.add_argument("--gap", type=float, default=0.0, help="секунд между кодами")
     ap.add_argument("--repeat", type=int, default=None,
                     help="сколько раз слать каждое сообщение (для --fifo по умолчанию 25)")
+    ap.add_argument("--hit", type=int, nargs="?", const=8, metavar="N",
+                    help=f"N ударов по каналу {HIT_CH}: проверка, доходит ли "
+                         "MIDI вообще -- удары понимает любая сборка")
     ap.add_argument("--rate", type=int, metavar="FRAMES", default=None,
                     help=f"период строба в кадрах, {PER_MIN}-{PER_MAX} "
                          f"({VBL/2/PER_MIN:.1f}-{VBL/2/PER_MAX:.1f} Гц)")
@@ -141,7 +146,7 @@ def main():
         for n in mido.get_output_names():
             print(n)
         return
-    if not a.what and not (a.start or a.stop or a.rate or a.cc):
+    if not a.what and not (a.start or a.stop or a.rate or a.cc or a.hit):
         ap.error("нечего слать")
     if a.rate is not None and not (PER_MIN <= a.rate <= PER_MAX):
         ap.error(f"период {PER_MIN}..{PER_MAX} кадров; короче нельзя, "
@@ -177,6 +182,17 @@ def main():
                  f"период строба {a.rate} кадров, {VBL/2/a.rate:.2f} Гц (CC {CC_STROBE} = {v})")
         if a.cc:
             send([ctl, a.cc[0], a.cc[1]], f"CC {a.cc[0]} = {a.cc[1]}")
+        if a.hit:
+            # the oldest path there is, and the one every build understands:
+            # if this does nothing either, no MIDI is reaching the machine
+            st = 0x90 | (HIT_CH - 1)
+            for i in range(a.hit):
+                dest.raw([st, PAD_BASE + (i % 8), 120])
+                time.sleep(0.15)
+                dest.raw([st, PAD_BASE + (i % 8), 0])
+                time.sleep(0.1)
+            print(f"{a.hit} ударов по каналу {HIT_CH}, ноты "
+                  f"{PAD_BASE}..{PAD_BASE + 7}")
         for i, (code, label) in enumerate(codes(a.what)):
             if i and a.gap:
                 time.sleep(a.gap)

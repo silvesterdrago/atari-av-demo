@@ -191,6 +191,14 @@ ARCRUN := --tos $(TOS) --machine st --memsize 1 --monitor mono --sound off \
 # without a writer parked on it Hatari hangs before it boots. The holder opens
 # O_RDWR, which never blocks and never hands Hatari EOF -- the same reason
 # midibridge.c and tools/pos.py do.
+# The same binary with the diagnostic bars on, to put on the card when
+# something does not arrive: bar two counts MIDI bytes the program consumed,
+# so it separates "nothing is reaching the machine" from "the codes mean
+# something else in the binary that is actually on the card".
+dist/ARCDIAG.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
+	$(VASM) -Ftos -quiet -DDIAG=1 -o $@ $<
+arc-diag: dist/ARCDIAG.TOS arc
+
 run-arc: arc fifo
 	@python3 -c "import os, time; os.open('$(FIFO)', os.O_RDWR); time.sleep(99999)" & \
 	 echo $$! > /tmp/noiseav-hold.pid

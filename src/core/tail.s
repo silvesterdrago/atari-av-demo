@@ -490,6 +490,12 @@ poll_keyboard:
 
     cmp.b   #27,d0
     beq.s   .quit
+    move.w  d0,d1
+    and.w   #$ff,d1
+    cmp.w   #'z',d1             ; the strobe, before the catch-all hit below
+    beq.s   .strobe
+    cmp.w   #'Z',d1
+    beq.s   .strobe
     ifd SCENES
     move.w  d0,d1               ; 1..9 pick a scene; a standalone show has
     and.w   #$ff,d1             ; no scene table and falls through to a hit
@@ -517,6 +523,51 @@ poll_keyboard:
 .quit:
     move.w  #1,quit_flag
     rts
+.strobe:
+    bsr     strobe_toggle
+    rts
+
+;----------------------------------------------------------------------
+; The strobe, on Z. Inverting the whole display is one word to the palette
+; register, so it costs nothing and can sit over any scene -- which is what
+; makes it a modifier rather than a scene of its own.
+;
+; STROBE_HALF is not a build flag on purpose. One inversion every 8 frames
+; is 4.5 Hz on the glass; the register can flip every frame at 71 Hz, and
+; 15-25 Hz is where photosensitive seizure risk peaks. The rate stays here,
+; in one place, rather than being reachable from a command line.
+;
+; The palette is written every frame while strobing rather than only on the
+; turns: a show may write it itself -- GRID and HYPER inverse-flash on a hard
+; hit -- and this way the strobe takes the register back on the next frame
+; instead of the two fighting over who owns it.
+;----------------------------------------------------------------------
+STROBE_HALF equ 8
+
+strobe_frame:
+    tst.w   strobe_on
+    beq.s   .out
+    addq.w  #1,strobe_ctr
+    cmp.w   #STROBE_HALF,strobe_ctr
+    bcs.s   .paint
+    clr.w   strobe_ctr
+    eori.w  #1,strobe_ph
+.paint:
+    moveq   #0,d0
+    tst.w   strobe_ph
+    beq.s   .wr
+    move.w  #$777,d0
+.wr:
+    move.w  d0,PALETTE_HW
+.out:
+    rts
+
+strobe_toggle:
+    eori.w  #1,strobe_on
+    clr.w   strobe_ctr
+    clr.w   strobe_ph
+    move.w  #$000,PALETTE_HW    ; switching off on an inverted frame would
+    rts                         ; otherwise leave the scene inverted for good
 
 ;----------------------------------------------------------------------
     section data
@@ -580,6 +631,9 @@ isr_hits:       ds.w 1
 isr_disp:       ds.w 1
 overrun_disp:   ds.w 1
 window_ctr:     ds.w 1
+strobe_on:      ds.w 1
+strobe_ctr:     ds.w 1
+strobe_ph:      ds.w 1
 midi_status:    ds.b 1
 midi_d1:        ds.b 1
     even

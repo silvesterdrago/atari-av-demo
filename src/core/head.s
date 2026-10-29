@@ -13,11 +13,12 @@
 ;  buffer, the timers, the envelope, the diagnostics -- lives here
 ;  Atari ST (68000 @ 8MHz, plain 1040 STF, SM124 mono 640x400 @ 71Hz)
 ;
-;  Keys:  ESC = quit, any other key = a manual hit, so a show can be
-;         driven with no MIDI plugged in. A multi-scene build defines
-;         SCENES and takes 1-9 for itself.
+;  Keys:  ESC = quit, Z = the strobe on and off, any other key = a manual
+;         hit, so a show can be driven with no MIDI plugged in. A
+;         multi-scene build defines SCENES and takes 1-9 for itself.
 ;
-;  Build with -DDIAG=1 for the frame-budget overrun bar.
+;  Build with -DDIAG=1 for the frame-budget overrun bar, -DSTROBE=1 to
+;  boot with the strobe already running.
 ;======================================================================
 
     ifd CORE_HEAD_DONE          ; a multi-scene build includes this once and
@@ -215,6 +216,13 @@ start:
     move.l  buf_base,d0
     bsr     set_screen_base
     move.w  #$000,PALETTE_HW    ; mono: colour 0 dark = black ground, white ink
+    clr.w   strobe_ctr
+    clr.w   strobe_ph
+    ifd STROBE
+    move.w  #1,strobe_on        ; boot strobing, for measuring without a key
+    else
+    clr.w   strobe_on
+    endif
     bsr     clear_visible
     bsr     show_init
 
@@ -227,6 +235,7 @@ mainloop:
     bsr     measure_overrun
 
     bsr     show_frame
+    bsr     strobe_frame        ; after the show, so it owns the palette
 
     if DIAG
     bsr     draw_overrun_bar

@@ -156,10 +156,15 @@ measure_overrun:
     clr.w   overrun_acc
     move.w  midi_bytes,midi_disp
     clr.w   midi_bytes
-    move.w  acia_seen,acia_disp
-    clr.w   acia_seen
-    move.w  show_ctr,acia_disp  ; bar three is the show's own counter
+    ifd ACIABAR                 ; bar three is the probe INSIDE the 6850: lit
+    move.w  acia_seen,acia_disp ; with bar two empty means the bytes arrive and
+    clr.w   acia_seen           ; the program is not draining them; both empty
+    clr.w   show_ctr            ; means nothing is reaching the machine at all
+    else
+    move.w  show_ctr,acia_disp  ; otherwise it is the show's own counter
     clr.w   show_ctr
+    clr.w   acia_seen
+    endif
 .done:
     rts
 

@@ -23,7 +23,8 @@
 ;         transport start puts the show back to a known state.
 ;
 ;  Build with -DDIAG=1 for the frame-budget overrun bar, -DSTROBE=1 to
-;  boot with the strobe already running.
+;  boot with the strobe already running, -DACIABAR=1 to point bar three at
+;  the 6850 itself rather than at the show's own counter.
 ;======================================================================
 
     ifd CORE_HEAD_DONE          ; a multi-scene build includes this once and

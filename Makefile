@@ -207,7 +207,7 @@ card: arc dist/PRIMS.TOS
 # so it separates "nothing is reaching the machine" from "the codes mean
 # something else in the binary that is actually on the card".
 dist/ARCDIAG.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
-	$(VASM) -Ftos -quiet -DDIAG=1 -o $@ $<
+	$(VASM) -Ftos -quiet -DDIAG=1 -DACIABAR=1 -o $@ $<
 arc-diag: dist/ARCDIAG.TOS arc
 
 run-arc: arc fifo

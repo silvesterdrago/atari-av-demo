@@ -164,6 +164,22 @@ file-based MIDI drops most of a burst -- 4 bytes of 14 got through in the first
 run, which is why the test sends each message forty times -- so hold-style
 effects have to be confirmed on the machine.
 
+### What goes on the card
+
+```
+make card
+```
+
+Writes `dist/card/` with exactly what the machine needs and nothing else:
+`ARC.TOS` and its eight data files, plus `PRIMS.TOS` as the fallback that
+cannot fail for want of a file, because it reads none. 4.4 MB in all. Copy the
+whole directory to the root of the microSD.
+
+`make arc-diag` writes `ARCDIAG.TOS` separately -- the same binary with the
+diagnostic bars across the top rows. It belongs on the card only while
+something is being chased down; `make card` never puts it there, and the
+target checks that what it copied is not the diagnostic one.
+
 ### Watching it switch
 
 ```

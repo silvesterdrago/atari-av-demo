@@ -22,6 +22,12 @@
 ;  them at the whole table; a set that carries several acts in one table
 ;  moves them to switch acts, and the engine is otherwise unaware there is
 ;  more than one.
+;
+;  mo_arc turns the cycle off. A build whose compositions are addressed one
+;  by one -- by an arrangement, rather than by running an act's loop --
+;  morphs from WHAT IS ON THE SCREEN to a commanded composition and holds
+;  there, so the transition between two commands is the morph itself and
+;  the arrangement decides when it happens. mo_goto starts one.
 ;======================================================================
 NWORD       equ 6               ; x0top, x1top, x0bot, x1bot, y0, y1
 STATESZ     equ NSLOT*NWORD*2
@@ -55,6 +61,14 @@ mo_init:
     move.w  #NSTATE-2,st_hi     ; the table's last row repeats its first
     clr.w   cstate
     clr.w   ph
+    clr.w   mo_arc
+    clr.w   to_state
+    lea     keys,a0             ; the screen starts on the table's first row,
+    lea     from,a1             ; so a first commanded morph leaves from a
+    move.w  #(NSLOT*NWORD)-1,d0 ; known shape rather than from zeroes
+.seed:
+    move.w  (a0)+,(a1)+
+    dbra    d0,.seed
     move.l  VBCLOCK,t0
     clr.w   which
     move.l  screen0,d0
@@ -75,6 +89,11 @@ mo_frame:
 .roll:
     cmp.l   #HOLD+MORPH,d0
     bcs.s   .clock
+    tst.w   mo_arc              ; addressed one by one: hold where told, and
+    beq.s   .advance            ; do not walk on into the next composition
+    move.l  #HOLD+MORPH,d0
+    bra.s   .clock
+.advance:
     sub.l   #HOLD+MORPH,d0
     add.l   #HOLD+MORPH,t0
     move.w  cstate,d1
@@ -117,12 +136,22 @@ mo_frame:
 .eased:
     move.w  d0,d6
 
-    ; --- this frame's eight spans, between the two keyframes
+    ; --- this frame's spans, between the two keyframes
+    tst.w   mo_arc
+    beq.s   .pair
+    lea     from,a1             ; from the shape on the screen to the one
+    move.w  to_state,d0         ; that was asked for
+    mulu    #STATESZ,d0
+    lea     keys,a4
+    add.l   d0,a4
+    bra.s   .interp
+.pair:
     move.w  cstate,d0
     mulu    #STATESZ,d0
     lea     keys,a1
     add.l   d0,a1
     lea     STATESZ(a1),a4
+.interp:
     lea     cur,a2
     move.w  #(NSLOT*NWORD)-1,d7
 .coord:
@@ -214,6 +243,24 @@ mo_frame:
     move.l  d1,back
     eor.w   #1,which
     bsr     set_screen_base
+    rts
+
+;----------------------------------------------------------------------
+; d0 = the composition to morph to, from whatever is on the screen now.
+;----------------------------------------------------------------------
+mo_goto:
+    movem.l d0-d1/a0-a1,-(sp)
+    move.w  #1,mo_arc
+    move.w  d0,to_state
+    lea     cur,a0
+    lea     from,a1
+    move.w  #(NSLOT*NWORD)-1,d1
+.copy:
+    move.w  (a0)+,(a1)+
+    dbra    d1,.copy
+    clr.w   ph
+    move.l  VBCLOCK,t0
+    movem.l (sp)+,d0-d1/a0-a1
     rts
 
 ;----------------------------------------------------------------------
@@ -524,6 +571,9 @@ nbb:            ds.w 4
 cstate:         ds.w 1
 st_lo:          ds.w 1
 st_hi:          ds.w 1
+mo_arc:         ds.w 1
+to_state:       ds.w 1
+from:           ds.w NSLOT*NWORD
 ph:             ds.w 1
 t0:             ds.l 1
 which:          ds.w 1

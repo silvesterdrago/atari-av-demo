@@ -165,6 +165,13 @@ $(MULTIC): src/multic.s $(SHOW_SRCS) $(SHOW_DEPS) src/grid.bin src/half.bin \
            $(DATS) | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ src/multic.s
 
+# The whole arc in one binary, addressed by position number. Not built by
+# `make shows`: it lives in src/ beside the other sets, not in src/shows/.
+dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
+	$(VASM) -Ftos -quiet -o $@ $<
+arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
+     dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT
+
 multi: $(MULTI) $(MULTIB) $(MULTIC)
 	@ls -la $(MULTI) $(MULTIB) $(MULTIC) $(DATS)
 

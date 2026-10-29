@@ -1,0 +1,406 @@
+;======================================================================
+;  ARC -- the whole arc in one binary, addressed by POSITION number.
+;
+;  A command code is the position in their own 66-frame sequence: 15 is
+;  the nested squares, 18 the corridor, 58 the compression. Positions we
+;  have not built do nothing, so the numbering never moves as scenes are
+;  added and a set list in Live is literally a list of numbers off their
+;  storyboard. Codes above 66 are ours: 99 is the safety point on black.
+;
+;  Two families of scene live here, and the difference is visible in the
+;  arrangement because it costs time:
+;
+;    MORPH      acts I, II, III, VII, VIII. No data at all -- trapezoid
+;               keyframes in src/shows/acts*.inc, the same files the
+;               standalone binaries read. Switching is one frame.
+;    FLIPBOOK   the baked loops, 24 screens of 32000 bytes each. One
+;               shared buffer holds whichever is wanted, so entering one
+;               costs reading 768 KB off the card -- about two seconds on
+;               the machine. The read runs a chunk a frame, so the show
+;               stays alive through it and the new loop arrives over the
+;               old one a strip at a time.
+;
+;  The buffer is tracked by the FILE in it, not by the position, so 13
+;  and 14 -- the floor, and the floor with a block on the horizon -- share
+;  one file and switching between them reads nothing. The block is
+;  stamped into the loaded screens, the rows it covers being black in all
+;  of them.
+;
+;  Unlike PRIMS, the acts do not run their own loop: a command morphs from
+;  WHAT IS ON THE SCREEN to the commanded composition and holds there, so
+;  the arrangement decides every transition. That is what mo_arc does.
+;
+;  All six .DAT files must sit beside the binary.
+;======================================================================
+SCENES      equ 1               ; the core sends commands to scene_select
+POOL_SIZE   equ 1024
+RANGE_PAGES equ 131             ; two whole screens for the morph family
+
+    include "src/core/head.s"
+
+NSLOT       equ 20              ; one slot count for every act
+NSTATE      equ 28
+HOLD        equ 0               ; the arrangement says when, so nothing waits
+MORPH       equ 130             ; frames a transition takes
+
+    include "src/shows/morph.inc"
+
+    section text                ; the engine's include ends in bss
+
+NFRAMES     equ 24              ; must match tools/genflip.py
+FRAMESZ     equ 32000
+SETSZ       equ NFRAMES*FRAMESZ
+FB_WRAP     equ NFRAMES*256     ; phase is 8.8 screens, so it wraps exactly
+FB_CRUISE   equ 128             ; one screen every two frames
+FB_KICK     equ 4
+FB_MAX      equ 1024
+FB_SLOW     equ 16
+LOADCH      equ 8192            ; bytes a frame: 22 ms of a 375 KB/s card
+POS_MAX     equ 66
+SAFE_POS    equ 99              ; ours, not theirs
+SAFE_STATE  equ 26
+
+PT_Y0       equ 100             ; the block of position 14; the horizon bar
+PT_ROWS     equ 18              ; starts on row 118, below every row of it
+PT_BYTE     equ 39
+
+;----------------------------------------------------------------------
+show_init:
+    lea     frames,a1           ; the base register has no low byte, so the
+    move.l  a1,d0               ; screens must start on a 256 boundary
+    add.l   #255,d0
+    and.l   #$ffffff00,d0
+    move.l  d0,frame0
+    clr.w   fphase
+    move.w  #FB_CRUISE,fspeed
+    clr.l   buf_file
+    clr.w   loading
+    clr.w   fb_ready
+    clr.w   stamped
+    clr.w   kind
+    bsr     mo_init
+    moveq   #1,d0               ; position 1: black
+    moveq   #0,d1
+    bsr     scene_select
+    rts
+
+;----------------------------------------------------------------------
+show_frame:
+    tst.w   loading             ; a loop on its way in, a chunk a frame
+    beq.s   .noload
+    bsr     load_step
+.noload:
+    tst.w   kind
+    bne     fb_frame
+    bra     mo_frame
+
+;----------------------------------------------------------------------
+show_note_on:                   ; d0 = strength, d1 = pad*2
+    tst.w   kind                ; a hit drives the loop's speed; the morph
+    beq.s   .out                ; family is driven by the arrangement alone
+    movem.l d0-d2,-(sp)
+    move.w  d0,d2
+    mulu    #FB_KICK,d2
+    add.w   #FB_CRUISE,d2
+    cmp.w   #FB_MAX,d2
+    bcs.s   .ok
+    move.w  #FB_MAX,d2
+.ok:
+    move.w  d2,fspeed
+    movem.l (sp)+,d0-d2
+.out:
+    rts
+
+;----------------------------------------------------------------------
+; d0 = position, d1 = strength. The table says what lives there: nothing,
+; a composition of the morph family, or one of the baked loops.
+;----------------------------------------------------------------------
+scene_select:
+    movem.l d0-d7/a0-a2,-(sp)
+    cmp.w   #SAFE_POS,d0
+    beq     .safety
+    tst.w   d0
+    beq     .out
+    cmp.w   #POS_MAX,d0
+    bhi     .out
+    subq.w  #1,d0
+    add.w   d0,d0
+    lea     pos_tbl,a0
+    move.w  0(a0,d0.w),d0
+    beq     .out                ; a position we have not built
+    move.w  d0,d2
+    lsr.w   #8,d2               ; 1 morph, 2 loop, 3 loop with the block
+    and.w   #$ff,d0
+    cmp.w   #1,d2
+    beq     .morph
+
+;---- one of the baked loops
+    moveq   #0,d4
+    cmp.w   #3,d2
+    bne.s   .nostamp
+    moveq   #1,d4               ; position 14 wants the block
+.nostamp:
+    move.w  d0,d3
+    lsl.w   #2,d0
+    lea     name_tbl,a0
+    move.l  0(a0,d0.w),a1
+    cmp.l   buf_file,a1         ; the same screens we are already holding,
+    beq     .entered            ; so there is nothing to read
+    bsr     load_abort          ; a command mid-read drops that read
+    clr.l   buf_file
+    clr.w   fb_ready
+    move.l  a1,d6               ; GEMDOS keeps d3-d7, and nothing else
+    clr.w   -(sp)               ; Fopen, read only
+    move.l  a1,-(sp)
+    move.w  #GD_FOPEN,-(sp)
+    trap    #1
+    lea     8(sp),sp
+    tst.l   d0
+    bmi     .out
+    move.w  d0,ld_handle
+    move.l  d6,ld_file
+    move.w  d4,ld_stamp
+    clr.l   ld_done
+    move.w  #1,loading
+    move.w  #1,kind             ; the loop owns the screen from here
+    bra     .out
+.entered:
+    move.w  #1,kind
+    move.w  #1,fb_ready
+    move.w  d4,d0
+    bsr     set_stamp
+    bra     .out
+
+;---- a composition of the morph family
+.morph:
+    move.w  d0,d5
+    bsr     to_morph
+    move.w  d5,d0
+    bsr     mo_goto
+    bra.s   .out
+.safety:
+    moveq   #SAFE_STATE,d5
+    bsr     to_morph
+    move.w  d5,d0
+    bsr     mo_goto
+.out:
+    movem.l (sp)+,d0-d7/a0-a2
+    rts
+
+;----------------------------------------------------------------------
+; Hand the screen back to the morph family. Its two buffers still hold
+; whatever they held before the loop played over them, and `prev` agrees
+; with them -- so without clearing it the engine would decide nothing had
+; changed and never redraw.
+;----------------------------------------------------------------------
+to_morph:
+    movem.l d0-d1/a0,-(sp)
+    clr.w   kind
+    bsr     load_abort
+    lea     prev,a0
+    move.w  #(2*NSLOT*NWORD)-1,d0
+.zap:
+    clr.w   (a0)+
+    dbra    d0,.zap
+    move.l  screen1,back
+    clr.w   which
+    move.l  screen0,d0
+    bsr     set_screen_base
+    movem.l (sp)+,d0-d1/a0
+    rts
+
+;----------------------------------------------------------------------
+; Close a read that is still running, without taking its file.
+;----------------------------------------------------------------------
+load_abort:
+    tst.w   loading
+    beq.s   .no
+    clr.w   loading
+    move.w  ld_handle,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
+.no:
+    rts
+
+;----------------------------------------------------------------------
+; One chunk of the loop being read, once a frame. Reading 768 KB in a
+; single call holds the machine for the card's whole transfer and nothing
+; else runs, not even MIDI; a chunk a frame costs the same total and
+; leaves the show alive.
+;----------------------------------------------------------------------
+load_step:
+    movem.l d0-d3/a0,-(sp)
+    move.l  ld_done,d3
+    move.l  frame0,a0
+    add.l   d3,a0
+    move.l  #SETSZ,d2
+    sub.l   d3,d2
+    cmp.l   #LOADCH,d2
+    bls.s   .last
+    move.l  #LOADCH,d2
+.last:
+    move.l  a0,-(sp)            ; Fread into where we left off
+    move.l  d2,-(sp)
+    move.w  ld_handle,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    cmp.l   d2,d0
+    bne.s   .short              ; a chunk that came up short is not our file
+    add.l   d2,d3
+    move.l  d3,ld_done
+    cmp.l   #SETSZ,d3
+    bcs.s   .out
+    bsr     load_abort          ; done: close it and take the file
+    move.l  ld_file,buf_file
+    clr.w   stamped             ; fresh screens carry no block
+    move.w  #1,fb_ready
+    move.w  ld_stamp,d0
+    bsr     set_stamp
+    bra.s   .out
+.short:
+    bsr     load_abort
+.out:
+    movem.l (sp)+,d0-d3/a0
+    rts
+
+;----------------------------------------------------------------------
+; d0 = 1 to stand the block on the horizon, 0 to take it away. Two BYTE
+; writes a row: 16 px centred on 320 begin at byte 39, and a word write to
+; an odd address is an address error on a 68000.
+;----------------------------------------------------------------------
+set_stamp:
+    movem.l d0-d3/a0-a1,-(sp)
+    cmp.w   stamped,d0
+    beq.s   .out
+    move.w  d0,stamped
+    moveq   #0,d1
+    tst.w   d0
+    beq.s   .val
+    moveq   #-1,d1
+.val:
+    move.w  #PT_Y0,d0
+    mulu    row_bytes,d0
+    add.l   #PT_BYTE,d0
+    move.l  frame0,a0
+    add.l   d0,a0
+    moveq   #NFRAMES-1,d3
+.frame:
+    move.l  a0,a1
+    moveq   #PT_ROWS-1,d2
+.row:
+    move.b  d1,(a1)
+    move.b  d1,1(a1)
+    adda.w  row_bytes,a1
+    dbra    d2,.row
+    add.l   #FRAMESZ,a0
+    dbra    d3,.frame
+.out:
+    movem.l (sp)+,d0-d3/a0-a1
+    rts
+
+;----------------------------------------------------------------------
+; A baked loop playing: the machine writes one register and nothing else.
+;----------------------------------------------------------------------
+fb_frame:
+    move.w  fspeed,d0           ; a kick decays back to the cruise
+    cmp.w   #FB_CRUISE+FB_SLOW,d0
+    bcs.s   .sk
+    sub.w   #FB_SLOW,d0
+    bra.s   .sp
+.sk:
+    move.w  #FB_CRUISE,d0
+.sp:
+    move.w  d0,fspeed
+    add.w   fphase,d0           ; wrap on the loop itself, not on 65536
+.wrap:
+    cmp.w   #FB_WRAP,d0
+    bcs.s   .ok
+    sub.w   #FB_WRAP,d0
+    bra.s   .wrap
+.ok:
+    move.w  d0,fphase
+    tst.w   fb_ready            ; mid-read, or a file that is not ours
+    beq.s   .out
+    lsr.w   #8,d0
+    and.l   #$ffff,d0
+    mulu    #FRAMESZ,d0
+    add.l   frame0,d0
+    bsr     set_screen_base
+.out:
+    rts
+
+;----------------------------------------------------------------------
+    section data
+    even
+; What lives at each of their 66 positions: 0 nothing, $01xx a composition
+; of the morph family, $02xx one of the baked loops, $03xx that loop with
+; the block of position 14 stamped into it.
+pos_tbl:
+    dc.w    $0100, $0101, $0102, $0103, $0104       ; I    01-05
+    dc.w    $0106, $0107, $0108, $0109, $010a       ; II   06-10
+    dc.w    $010c, $0000                            ;      11, 12 radial
+    dc.w    $0205, $0305, $010e, $010f              ; III  13-16
+    dc.w    $0201, $0200, $0000, $0000, $0000       ; IV   17-21
+    dc.w    $0000, $0000, $0000, $0000, $0000       ;      22-26
+    dc.w    $0000, $0000, $0000, $0000, $0000       ; V    27-31
+    dc.w    $0000, $0000, $0000, $0000, $0000       ;      32-36
+    dc.w    $0000, $0000, $0000, $0202              ;      37-40 wave
+    dc.w    $0000, $0000, $0204, $0203, $0000       ; VI   41-45
+    dc.w    $0000, $0000, $0000, $0000, $0000       ;      46-50
+    dc.w    $0000, $0000, $0000, $0000, $0000       ;      51-55
+    dc.w    $0000, $0000                            ;      56, 57
+    dc.w    $0111, $0112, $0113, $0114, $0115       ; VII  58-62
+    dc.w    $0116, $0117, $0118                     ; VIII 63-65
+    dc.w    $0000                                   ;      66 title card
+
+    even
+name_tbl:
+    dc.l    nm_corr, nm_tun, nm_wave, nm_desy, nm_drift, nm_floor
+nm_corr:    dc.b "CORRIDOR.DAT",0
+    even
+nm_tun:     dc.b "TUNNEL.DAT",0
+    even
+nm_wave:    dc.b "WAVE.DAT",0
+    even
+nm_desy:    dc.b "DESYNC.DAT",0
+    even
+nm_drift:   dc.b "DRIFT.DAT",0
+    even
+nm_floor:   dc.b "FLOOR.DAT",0
+    even
+
+keys:
+    include "src/shows/acts1.inc"
+    include "src/shows/acts2.inc"
+    include "src/shows/acts3.inc"
+    include "src/shows/acts7.inc"
+    ; the safety roll: a point on black, and the composition it eases into
+    ; is the same point, so it sits there for as long as it is needed
+    dc.w    304,336,304,336,187,213
+    rept 19
+    dc.w    320,320,320,320,200,200
+    endr
+    dc.w    304,336,304,336,187,213
+    rept 19
+    dc.w    320,320,320,320,200,200
+    endr
+
+;----------------------------------------------------------------------
+    section bss
+    even
+frames:         ds.b SETSZ+256
+frame0:         ds.l 1
+buf_file:       ds.l 1          ; which .DAT the buffer holds, not which position
+ld_file:        ds.l 1
+ld_done:        ds.l 1
+ld_handle:      ds.w 1
+ld_stamp:       ds.w 1
+loading:        ds.w 1
+fb_ready:       ds.w 1
+fphase:         ds.w 1
+fspeed:         ds.w 1
+stamped:        ds.w 1
+kind:           ds.w 1          ; 0 the morph family, 1 a baked loop
+    even

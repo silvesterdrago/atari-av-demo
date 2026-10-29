@@ -5,6 +5,7 @@
     tools/pos.py 15 16 --gap 4      # walk two positions, four seconds apart
     tools/pos.py strobe             # effect: the strobe on or off
     tools/pos.py freeze --hold 2    # effect held for two seconds
+    tools/pos.py --rate 16          # the strobe's period, in frames
     tools/pos.py --start            # transport start: back to a known state
 
 The code IS the position in the storyboard, so `18` means their frame 18 and
@@ -31,6 +32,9 @@ import sys
 import time
 
 CH = 16                 # must match CTRL_CH in src/core/head.s
+CC_STROBE = 1           # and CC_STROBE in src/core/tail.s
+PER_MIN, PER_MAX = 8, 40        # STROBE_HALF and STROBE_MAX, in frames
+VBL = 71.2
 POS_MAX = 66
 SAFE = 99
 
@@ -117,6 +121,11 @@ def main():
     ap.add_argument("--gap", type=float, default=0.0, help="секунд между кодами")
     ap.add_argument("--repeat", type=int, default=None,
                     help="сколько раз слать каждое сообщение (для --fifo по умолчанию 25)")
+    ap.add_argument("--rate", type=int, metavar="FRAMES", default=None,
+                    help=f"период строба в кадрах, {PER_MIN}-{PER_MAX} "
+                         f"({VBL/2/PER_MIN:.1f}-{VBL/2/PER_MAX:.1f} Гц)")
+    ap.add_argument("--cc", nargs=2, type=int, metavar=("N", "V"), default=None,
+                    help="сырой контроллер: номер 0-7 и значение 0-127")
     ap.add_argument("--list", action="store_true",
                     help="перечислить выходы CoreMIDI и выйти")
     ap.add_argument("--start", action="store_true", help="транспорт: start")
@@ -132,8 +141,13 @@ def main():
         for n in mido.get_output_names():
             print(n)
         return
-    if not a.what and not (a.start or a.stop):
+    if not a.what and not (a.start or a.stop or a.rate or a.cc):
         ap.error("нечего слать")
+    if a.rate is not None and not (PER_MIN <= a.rate <= PER_MAX):
+        ap.error(f"период {PER_MIN}..{PER_MAX} кадров; короче нельзя, "
+                 "нижняя граница зашита в ядре")
+    if a.cc and not (0 <= a.cc[0] <= 7 and 0 <= a.cc[1] <= 127):
+        ap.error("CC: номер 0-7, значение 0-127")
     if a.fifo and a.port:
         ap.error("или --fifo, или --port")
     if not (1 <= a.ch <= 16):
@@ -152,9 +166,17 @@ def main():
                 time.sleep(0.12)
         print(label)
 
+    ctl = 0xB0 | (a.ch - 1)
     try:
         if a.start:
             send([START], "транспорт: start")
+        if a.rate is not None:
+            # the ST does per = PER_MIN + v*(PER_MAX-PER_MIN)/127, so invert it
+            v = round((a.rate - PER_MIN) * 127 / (PER_MAX - PER_MIN))
+            send([ctl, CC_STROBE, v],
+                 f"период строба {a.rate} кадров, {VBL/2/a.rate:.2f} Гц (CC {CC_STROBE} = {v})")
+        if a.cc:
+            send([ctl, a.cc[0], a.cc[1]], f"CC {a.cc[0]} = {a.cc[1]}")
         for i, (code, label) in enumerate(codes(a.what)):
             if i and a.gap:
                 time.sleep(a.gap)

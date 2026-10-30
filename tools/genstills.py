@@ -19,6 +19,7 @@ patched module instead, which also means our corridor and floor corrections
 apply to them.
 """
 import math
+import random
 import sys
 from PIL import Image, ImageChops, ImageDraw
 from sysload import H, W, pack, sysmod
@@ -142,6 +143,81 @@ def grid_walls():
     return im
 
 
+def lens_grid(k=0.55):
+    """45: a flat grid read through a lens -- the error is the optics, not the
+    geometry, so the ruling itself has to stay regular and only the sampling
+    bend. One over 1 + k*r^2 keeps the centre still and stretches the edges."""
+    src = s.grid(14, 9, 7)
+    sp = src.load()
+    im = Image.new("1", (W, H), 0)
+    px = im.load()
+    for y in range(H):
+        for x in range(W):
+            dx, dy = (x - CX) / CX, (y - CY) / CY
+            f = 1.0 + k * (dx * dx + dy * dy)
+            sx, sy = int(CX + dx * CX / f), int(CY + dy * CY / f)
+            if 0 <= sx < W and 0 <= sy < H and sp[sx, sy]:
+                px[x, y] = 1
+    return im
+
+
+def cracked_room(jag=26, push=22):
+    """53: the room split down a jagged fault, the far half pushed off register."""
+    base = s.room_corner()
+    rnd = random.Random(53)                 # one fixed crack, not a new one a run
+    pts = [(CX + rnd.randint(-jag, jag), y) for y in range(0, H + 41, 40)]
+    m = Image.new("1", (W, H), 0)
+    ImageDraw.Draw(m).polygon([(0, 0)] + pts + [(0, H)], fill=1)
+    out = Image.new("1", (W, H), 0)
+    out.paste(base, (0, 0), m)
+    far = ImageChops.invert(m.convert("L")).convert("1")
+    out.paste(base.transform((W, H), Image.AFFINE, (1, 0, -push, 0, 1, -9)), (0, 0), far)
+    d = ImageDraw.Draw(out)
+    for a, b in zip(pts, pts[1:]):
+        s.thick_line(d, a, b, 5)
+    return out
+
+
+def shear_break(n=11, amp=34):
+    """47: the corridor cut into vertical slices, each knocked off register.
+    Live this is the shear that was priced and put off; baked it is a crop and
+    a paste, because nothing has to hold the slices apart in real time."""
+    base = s.corridor()
+    rnd = random.Random(47)
+    out = Image.new("1", (W, H), 0)
+    w = W // n
+    for i in range(n):
+        x0 = i * w
+        x1 = W if i == n - 1 else x0 + w
+        out.paste(base.crop((x0, 0, x1, H)), (x0, rnd.randint(-amp, amp)))
+    return out
+
+
+def collapse_fan(n=20, vx=0.62, vy=0.44, duty=0.55):
+    """54: twenty wedges from the frame to one point, and the point is off
+    centre -- that displacement is the whole difference from 41, which is the
+    same fan drawn from the middle."""
+    im, d = new()
+    ax, ay = W * vx, H * vy
+
+    def perim(u):
+        """u in [0, 1) around the frame from the top-left corner."""
+        t = u * 2 * (W + H)
+        if t < W:
+            return (t, 0)
+        t -= W
+        if t < H:
+            return (W, t)
+        t -= H
+        if t < W:
+            return (W - t, H)
+        return (0, H - (t - W - H))
+
+    for i in range(n):
+        d.polygon([perim(i / n), perim(i / n + duty / n), (ax, ay)], fill=1)
+    return im
+
+
 # position in their sequence -> how to draw it. The ORDER here is the order in
 # the file, and src/arc.s indexes it by that order.
 STILLS = [
@@ -163,6 +239,23 @@ STILLS = [
     # carrier for them rather than a loop of one picture
     (20, "room", s.room_corner),
     (24, "multiple-spaces-A", grid_walls),
+    # act VI: the act is CUT and jerky, so a still is what it asks for -- the
+    # break comes from the effects over it, not from baked motion
+    (42, "tilt", s.tilt),
+    (45, "grid-distortion", lens_grid),
+    (48, "fault-grid", s.fault_grid),
+    (51, "unstable-A", s.unparallel),
+    (53, "cracked-room", cracked_room),
+    (54, "collapsing-perspective", collapse_fan),
+    (57, "tilt-collapse", s.twisted_squares),
+    # act II's one hole: a fan of rays cannot be morphed live, because a row
+    # span draws a near-horizontal ray only as a stack of its own slots and
+    # twelve rays do not fit in twenty
+    (12, "radial", s.radial_bowtie),
+    # the vanishing point at the far end of DRIFT's sweep, standing still: as
+    # a phase of a loop it is not addressable, as a screen it is
+    (46, "perspective-shift", lambda: s.axis_loss(dx=170, dy=-60)),
+    (47, "break", shear_break),
 ]
 
 shots = []

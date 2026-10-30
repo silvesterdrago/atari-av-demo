@@ -227,6 +227,7 @@ start:
     move.w  #$000,PALETTE_HW    ; mono: colour 0 dark = black ground, white ink
     bsr     fx_reset
     move.w  #STROBE_HALF,strobe_per
+    move.w  #12,nz_count
     ifd STROBE
     move.w  #1,strobe_on        ; boot strobing, for measuring without a key
     endif
@@ -246,6 +247,16 @@ mainloop:
     bsr     show_frame
 .frozen:
     bsr     fx_frame            ; after the show, so it owns the palette
+
+    ; The base register is latched per frame, so what is painted at the end
+    ; of a pass is what the beam shows during the NEXT one. Undoing it at the
+    ; top of that next pass therefore takes it off before it has ever been
+    ; seen -- which is exactly what happened, and only the odd stripe
+    ; survived. Both go at the end instead, undo first and paint after: the
+    ; scene always draws into the buffer that is NOT on screen, so restoring
+    ; the one that IS can never land on fresh drawing.
+    bsr     fx_noise_restore
+    bsr     fx_noise_paint
 
     if DIAG
     bsr     draw_overrun_bar

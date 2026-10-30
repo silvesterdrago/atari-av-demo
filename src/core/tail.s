@@ -696,11 +696,148 @@ fx_frame:
     rts
 
 ;----------------------------------------------------------------------
+; Stripes of noise over whatever is on the screen, held on a note.
+;
+; Nothing here redraws a whole screen: a flipbook only moves the base
+; register, and the baked screens ARE the source, while the morph engine
+; clears only the boxes its own slots covered. So noise written into the
+; picture would stay there for good. Every row it dirties is saved first
+; and put back at the top of the next frame, BEFORE the scene draws --
+; after would overwrite fresh drawing with stale bytes.
+;
+; Position, thickness and length are all drawn fresh each frame, because a
+; stripe that keeps its place reads as a pattern rather than as a fault.
+; The bytes come out of the noise pool at a rolling offset, so there is no
+; random number per byte.
+;
+; The cost is three passes over what it dirties -- save, paint, restore --
+; so about 11 cycles a byte. At the default twelve stripes that is some
+; 600 bytes and 7k cycles, under a tenth of a frame; CC 3 raises it, and
+; the ceiling of NZ_BYTES is what stops a knob from eating the frame.
+;----------------------------------------------------------------------
+; Rows go back LAST FIRST. Two stripes in one frame can overlap, and the
+; second then saved the first one's noise as its "original" -- undone in the
+; order they were laid, the second hands that noise back and it stays. In
+; reverse it is handed back and then overwritten by the true original, which
+; is what undo has to mean. Forwards it leaked about a byte every three
+; frames, which took an hour of run time to show up as a haze.
+fx_noise_restore:
+    move.w  nz_n,d0
+    beq.s   .out
+    movem.l d0-d2/a0-a2,-(sp)
+    move.w  d0,d1
+    mulu    #6,d1
+    lea     nz_addr,a0
+    add.l   d1,a0               ; one past the last entry
+    lea     nz_save,a1
+    add.w   nz_total,a1         ; and one past the last byte saved
+    subq.w  #1,d0
+.row:
+    subq.l  #6,a0
+    moveq   #0,d1
+    move.w  4(a0),d1            ; its length, and the bytes just before a1
+    sub.w   d1,a1
+    move.l  (a0),a2
+    move.l  a1,-(sp)
+    move.w  d1,d2
+    subq.w  #1,d2
+.byte:
+    move.b  (a1)+,(a2)+
+    dbra    d2,.byte
+    move.l  (sp)+,a1
+    dbra    d0,.row
+    movem.l (sp)+,d0-d2/a0-a2
+    clr.w   nz_n
+    clr.w   nz_total
+.out:
+    rts
+
+fx_noise_paint:
+    tst.w   nz_on
+    beq     .out
+    movem.l d0-d7/a0-a2,-(sp)
+    lea     nz_addr,a1
+    lea     nz_save,a2
+    moveq   #0,d6                   ; bytes spent so far
+    move.w  nz_count,d7
+    subq.w  #1,d7
+    bmi     .done
+.stripe:
+    bsr     next_rng                ; one draw carries the whole stripe
+    move.l  d3,d0
+    and.l   #$ffff,d0
+    mulu    scr_rows,d0
+    clr.w   d0
+    swap    d0                      ; the row it starts on
+    move.w  d0,d5
+    move.l  d3,d0
+    lsr.l   #8,d0
+    move.w  d0,d1
+    and.w   #3,d1
+    addq.w  #1,d1                   ; one to four rows thick
+    lsr.l   #8,d0
+    move.w  d0,d2
+    and.w   #15,d2
+    add.w   #8,d2                   ; eight to twenty-three bytes long
+    lsr.l   #8,d0
+    and.w   #63,d0                  ; and where it starts across
+    move.w  row_bytes,d4
+    sub.w   d0,d4
+    cmp.w   d4,d2
+    bls.s   .fits
+    move.w  d4,d2                   ; clipped to the row rather than wrapped
+.fits:
+    tst.w   d2
+    beq.s   .next
+.rows:
+    cmp.w   #NZ_ROWS,nz_n
+    bcc     .done
+    move.w  d6,d4
+    add.w   d2,d4
+    cmp.w   #NZ_BYTES,d4
+    bhi.s   .done                   ; the ceiling, so a knob cannot eat a frame
+    cmp.w   scr_rows,d5
+    bcc.s   .next
+    move.w  d5,d4
+    mulu    row_bytes,d4
+    move.l  cur_base,a0
+    add.l   d4,a0
+    add.w   d0,a0
+    move.l  a0,(a1)+                ; where, and how much, so the restore does
+    move.w  d2,(a1)+                ; not care where the base has moved since
+    addq.w  #1,nz_n
+    add.w   d2,nz_total
+    add.w   d2,d6
+    lea     noise_pool,a3
+    move.w  nz_roll,d4
+    and.w   #POOL_SIZE-1,d4
+    add.w   d2,d4
+    and.w   #POOL_SIZE-1,d4
+    move.w  d4,nz_roll
+    add.w   d4,a3
+    move.w  d2,d4
+    subq.w  #1,d4
+.byte:
+    move.b  (a0),(a2)+              ; save, then paint over it
+    move.b  (a3)+,(a0)+
+    dbra    d4,.byte
+    addq.w  #1,d5
+    subq.w  #1,d1
+    bne.s   .rows
+.next:
+    dbra    d7,.stripe
+.done:
+    movem.l (sp)+,d0-d7/a0-a2
+.out:
+    rts
+
+;----------------------------------------------------------------------
 ; Everything off and the register handed back. Transport start and stop
 ; both come through here: a held effect whose note-off never arrives --
 ; because the tape stopped -- would otherwise stay on for good.
 ;----------------------------------------------------------------------
 fx_reset:
+    clr.w   nz_on
     clr.w   fx_invert
     clr.w   fx_shift
     bsr     show_fx_off
@@ -746,7 +883,9 @@ FX_FREEZE   equ 103             ; while held
 FX_FLASH    equ 104             ; one inverted frame
 FX_INVERT   equ 105             ; held inverted, not flashing
 FX_SHIFT    equ 106             ; held displaced by CC 2 pages
-FX_LAST     equ 106             ; past this a show gets the code itself
+FX_NOISE    equ 109             ; held: stripes of noise over the picture
+NZ_ROWS     equ 48              ; rows one frame may dirty, and the size of
+NZ_BYTES    equ 1536            ; the backup that puts them back
 
 cmd_press:
     movem.l d0-d1/a0,-(sp)
@@ -792,7 +931,7 @@ cmd_press:
     bra     .out
 .sh:
     cmp.w   #FX_SHIFT,d1
-    bne.s   .own
+    bne.s   .nz
     moveq   #0,d0               ; CC 2 says how far, one page by default
     move.b  cc_val+2,d0
     lsr.w   #4,d0
@@ -801,10 +940,15 @@ cmd_press:
 .amt:
     move.w  d0,fx_shift
     bra     .out
+.nz:
+    cmp.w   #FX_NOISE,d1
+    bne.s   .own
+    move.w  #1,nz_on
+    bra     .out
 .own:
-    cmp.w   #FX_LAST,d1         ; a code the core does not know belongs to
-    bls.s   .out                ; the show: loops and their speed are its own
-    bsr     show_fx
+    bsr     show_fx             ; any code the core does not know belongs to
+                                ; the show, whatever its number -- otherwise
+                                ; the two code spaces have to be kept in step
 .out:
     movem.l (sp)+,d0-d1/a0
     rts
@@ -821,14 +965,16 @@ cmd_release:
     rts
 .sh:
     cmp.w   #FX_SHIFT,d1
-    bne.s   .own
+    bne.s   .nz
     clr.w   fx_shift
     rts
+.nz:
+    cmp.w   #FX_NOISE,d1
+    bne.s   .own
+    clr.w   nz_on               ; the rows go back on the next frame, by the
+    rts                         ; same path that puts them back every frame
 .own:
-    cmp.w   #FX_LAST,d1
-    bls.s   .known
-    bra     show_fx_off
-.known:
+    bsr     show_fx_off
     cmp.w   #FX_STROBEH,d1
     bne.s   .s
     tst.w   strobe_held
@@ -858,6 +1004,7 @@ cmd_release:
 ; the strobe is rate-limited away from.
 ;----------------------------------------------------------------------
 CC_STROBE   equ 1
+CC_NOISE    equ 3
 
 cmd_cc:
     movem.l d0-d2/a0,-(sp)
@@ -865,6 +1012,13 @@ cmd_cc:
     bcc.s   .out                ; CC 0..7 are kept, the rest ignored
     lea     cc_val,a0
     move.b  d0,(a0,d1.w)
+    cmp.w   #CC_NOISE,d1        ; how many stripes, one to NZ_ROWS/4
+    bne.s   .nostripe
+    lsr.w   #3,d0
+    addq.w  #1,d0
+    move.w  d0,nz_count
+    bra.s   .out
+.nostripe:
     cmp.w   #CC_STROBE,d1
     bne.s   .out
     move.w  d0,d2               ; 0..127 across STROBE_HALF..STROBE_MAX
@@ -952,6 +1106,15 @@ fx_freeze:      ds.w 1
 fx_flash:       ds.w 1
 fx_invert:      ds.w 1
 fx_shift:       ds.w 1
+nz_on:          ds.w 1
+nz_n:           ds.w 1
+nz_total:       ds.w 1
+nz_count:       ds.w 1
+nz_roll:        ds.w 1
+nz_addr:        ds.l NZ_ROWS
+nz_len:         ds.w NZ_ROWS
+    even
+nz_save:        ds.b NZ_BYTES
 cc_val:         ds.b 8
     even
 midi_status:    ds.b 1

@@ -35,8 +35,8 @@ FX_TEXT = {
 }
 CC_TEXT = {
     "CC_STROBE": "период строба, 0–127 → {STROBE_HALF}–{STROBE_MAX} кадров",
-    "CC_SHIFT":  "насколько сдвигает эффект {FX_SHIFT}, в страницах по 256 байт (значение >> 4)",
-    "CC_NOISE":  "сколько полосок шума, 1–16 (значение >> 3)",
+    "CC_SHIFT":  "потолок сдвига {FX_SHIFT}, до {SHIFT_MAX} страниц по 256 байт",
+    "CC_NOISE":  "потолок шума {FX_NOISE}, до {NOISE_MAX} полосок",
 }
 # The names the positions go by, so the table reads as their storyboard does.
 POS_TEXT = {1: "чёрное", 2: "точка", 3: "линия", 4: "две линии", 5: "квадрат",

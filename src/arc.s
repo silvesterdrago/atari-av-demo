@@ -112,8 +112,12 @@ show_init:
     bsr     mo_init
     ifd FX
     move.w  #FX,d1              ; -DFX=<code> presses an effect at start-up,
-    moveq   #100,d0             ; which is how one is checked with MIDI and the
-    bsr     cmd_press           ; keyboard out of the loop: d1 code, d0 strength
+    ifd FXV                     ; -DFXV=<0..255> with what strength
+    move.w  #FXV,d0
+    else
+    moveq   #100,d0
+    endif
+    bsr     cmd_press           ; d1 code, d0 strength
     endif
     ifd GOTO
     move.w  #GOTO,d0            ; -DGOTO=<position> opens on one, which is how
@@ -199,10 +203,6 @@ scene_select:
     cmp.w   #6,d2
     beq     .stillpos
 
-.stillpos:
-    bsr     load_still
-    bra     .out
-
 ;---- one of the baked loops
     moveq   #0,d4
     cmp.w   #3,d2
@@ -255,6 +255,11 @@ scene_select:
     bsr     dis_init            ; it, and the two work buffers
     move.w  #KIND_DIS,kind
     bra     .out
+
+;---- one still, read on its own
+.stillpos:
+    bsr     load_still
+    bra.s   .out
 
 ;---- a composition of the morph family
 .morph:

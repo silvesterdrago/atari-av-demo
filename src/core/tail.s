@@ -832,6 +832,44 @@ fx_noise_paint:
     rts
 
 ;----------------------------------------------------------------------
+; How deep an effect goes. d0 = strength 0..255 off the note, d1 = which
+; controller holds the ceiling, d2 = the ceiling's own ceiling. Returns the
+; depth in d0, at least 1.
+;
+; The rule is the same one hits have always had: velocity picks INSIDE what
+; the knob allows. A knob alone is not playable -- it has to be set before
+; the note, and in Live the velocity is drawn on the note anyway. A note with
+; no velocity at all, which is what a program change is, takes the knob's
+; value whole, because the faintest shift would be no shift.
+;----------------------------------------------------------------------
+fx_depth:
+    movem.l d1-d3/a0,-(sp)
+    lea     cc_val,a0
+    moveq   #0,d3
+    move.b  (a0,d1.w),d3        ; 0..127 from the controller
+    mulu    d2,d3
+    divu    #127,d3
+    and.l   #$ffff,d3
+    tst.w   d3                  ; an untouched controller means the whole
+    bne.s   .have               ; range is available to the velocity
+    move.w  d2,d3
+.have:
+    tst.w   d0                  ; no velocity at all -- a program change --
+    beq.s   .full               ; takes the ceiling whole
+    mulu    d3,d0
+    divu    #255,d0
+    and.l   #$ffff,d0
+    tst.w   d0                  ; and a soft note is the SHALLOW end, never
+    bne.s   .out                ; the deep one: one, not the ceiling
+    moveq   #1,d0
+    bra.s   .out
+.full:
+    move.w  d3,d0
+.out:
+    movem.l (sp)+,d1-d3/a0
+    rts
+
+;----------------------------------------------------------------------
 ; Everything off and the register handed back. Transport start and stop
 ; both come through here: a held effect whose note-off never arrives --
 ; because the tape stopped -- would otherwise stay on for good.
@@ -884,6 +922,8 @@ FX_FLASH    equ 104             ; one inverted frame
 FX_INVERT   equ 105             ; held inverted, not flashing
 FX_SHIFT    equ 106             ; held displaced by CC 2 pages
 FX_NOISE    equ 109             ; held: stripes of noise over the picture
+SHIFT_MAX   equ 8               ; pages, and stripes, that a knob may ask for
+NOISE_MAX   equ 16
 NZ_ROWS     equ 48              ; rows one frame may dirty, and the size of
 NZ_BYTES    equ 1536            ; the backup that puts them back
 
@@ -932,17 +972,18 @@ cmd_press:
 .sh:
     cmp.w   #FX_SHIFT,d1
     bne.s   .nz
-    moveq   #0,d0               ; CC_SHIFT says how far, one page by default
-    move.b  cc_val+CC_SHIFT,d0
-    lsr.w   #4,d0
-    bne.s   .amt
-    moveq   #1,d0
-.amt:
+    moveq   #CC_SHIFT,d1
+    moveq   #SHIFT_MAX,d2
+    bsr     fx_depth            ; velocity picks inside what the knob allows
     move.w  d0,fx_shift
     bra     .out
 .nz:
     cmp.w   #FX_NOISE,d1
     bne.s   .own
+    moveq   #CC_NOISE,d1
+    moveq   #NOISE_MAX,d2
+    bsr     fx_depth
+    move.w  d0,nz_count
     move.w  #1,nz_on
     bra     .out
 .own:
@@ -1013,13 +1054,6 @@ cmd_cc:
     bcc.s   .out                ; CC 0..7 are kept, the rest ignored
     lea     cc_val,a0
     move.b  d0,(a0,d1.w)
-    cmp.w   #CC_NOISE,d1        ; how many stripes, one to NZ_ROWS/4
-    bne.s   .nostripe
-    lsr.w   #3,d0
-    addq.w  #1,d0
-    move.w  d0,nz_count
-    bra.s   .out
-.nostripe:
     cmp.w   #CC_STROBE,d1
     bne.s   .out
     move.w  d0,d2               ; 0..127 across STROBE_HALF..STROBE_MAX

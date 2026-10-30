@@ -20,6 +20,11 @@
 ;               reads as a cut. All three are the flipbook family plus a
 ;               composition pass, so they share the buffer and 49 and 52
 ;               share the corridor's file with 18.
+;    STILL      one picture, not a loop -- most of act V. All of them sit in
+;               one file and the ST reads just the screen it wants, 32000
+;               bytes, about 85 ms off the card against two seconds for a
+;               loop. It lands in the break-up's own work buffer, which is
+;               idle whenever a still is up, so a still costs no memory.
 ;    FLIPBOOK   the baked loops, 24 screens of 32000 bytes each. One
 ;               shared buffer holds whichever is wanted, so entering one
 ;               costs reading 768 KB off the card -- about two seconds on
@@ -66,6 +71,7 @@ SETSZ       equ NFRAMES*FRAMESZ
 KIND_MORPH  equ 0
 KIND_LOOP   equ 1
 KIND_DIS    equ 2
+KIND_STILL  equ 3
 FB_WRAP     equ NFRAMES*256     ; phase is 8.8 screens, so it wraps exactly
 FB_CRUISE   equ 128             ; one screen every two frames
 FB_KICK     equ 4
@@ -96,6 +102,13 @@ show_init:
     clr.w   fb_ready
     clr.w   stamped
     clr.w   kind
+    lea     work,a1             ; a still lands in the break-up's work buffer,
+    move.l  a1,d0               ; and a still can be the first thing asked for
+    add.l   #255,d0             ; -- so the two are set up here and not left
+    and.l   #$ffffff00,d0       ; to dis_init, which only runs on a break-up
+    move.l  d0,work0
+    add.l   #FRAMESZ,d0
+    move.l  d0,work1
     bsr     mo_init
     ifd FX
     move.w  #FX,d1              ; -DFX=<code> presses an effect at start-up,
@@ -134,9 +147,13 @@ show_frame:
 .noload:
     move.w  kind,d0
     beq     mo_frame
+    cmp.w   #KIND_STILL,d0      ; a still needs no frame at all; the effects
+    beq     .still              ; still work on it, they ride in the core
     cmp.w   #KIND_DIS,d0
     beq     dis_frame
     bra     fb_frame
+.still:
+    rts
 
 ;----------------------------------------------------------------------
 show_note_on:                   ; d0 = strength, d1 = pad*2
@@ -179,6 +196,12 @@ scene_select:
     and.w   #$ff,d0             ; 4 loop and then break it apart
     cmp.w   #1,d2
     beq     .morph
+    cmp.w   #6,d2
+    beq     .stillpos
+
+.stillpos:
+    bsr     load_still
+    bra     .out
 
 ;---- one of the baked loops
     moveq   #0,d4
@@ -282,6 +305,55 @@ dis_table:
     bne.s   .out
     move.l  #cut_name,dis_tab
 .out:
+    rts
+
+;----------------------------------------------------------------------
+; One still, read straight into the break-up's work buffer. Blocking for
+; the 85 ms it takes is not worth chunking: six frames, once, against the
+; ninety-three a loop needs.
+;----------------------------------------------------------------------
+load_still:                     ; d0 = which screen
+    movem.l d0-d5,-(sp)
+    move.w  d0,d3               ; the screen's index; GEMDOS keeps d3-d7
+    bsr     load_abort
+    clr.w   -(sp)               ; Fopen, read only
+    pea     nm_still
+    move.w  #GD_FOPEN,-(sp)
+    trap    #1
+    lea     8(sp),sp
+    tst.l   d0
+    bmi     .done
+    move.w  d0,d4               ; the handle
+
+    clr.w   -(sp)               ; Fseek from the start, to this screen
+    move.w  d4,-(sp)
+    move.w  d3,d0
+    mulu    #FRAMESZ,d0
+    move.l  d0,-(sp)
+    move.w  #GD_FSEEK,-(sp)
+    trap    #1
+    lea     10(sp),sp
+
+    move.l  work0,-(sp)         ; Fread, one screen
+    move.l  #FRAMESZ,-(sp)
+    move.w  d4,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    move.l  d0,d5
+
+    move.w  d4,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
+
+    cmp.l   #FRAMESZ,d5
+    bne.s   .done               ; a short read is not our file
+    move.w  #KIND_STILL,kind
+    move.l  work0,d0
+    bsr     set_screen_base
+.done:
+    movem.l (sp)+,d0-d5
     rts
 
 ;----------------------------------------------------------------------
@@ -482,10 +554,10 @@ pos_tbl:
     dc.w    $0205, $0305, $010e, $010f              ; III  13-16
     dc.w    $0201, $0200, $0000, $0000, $0000       ; IV   17-21
     dc.w    $0000, $0000, $0000, $0000, $0000       ;      22-26
-    dc.w    $0000, $0000, $0000, $0000, $0000       ; V    27-31
-    dc.w    $0000, $0000, $0000, $0000, $0000       ;      32-36
-    dc.w    $0000, $0000, $0000, $0202              ;      37-40 wave
-    dc.w    $0000, $0000, $0204, $0203, $0000       ; VI   41-45
+    dc.w    $0600, $0601, $0602, $0603, $0604       ; V    27-31
+    dc.w    $0605, $0606, $0607, $0608, $0609       ;      32-36
+    dc.w    $060a, $060b, $060c, $0202              ;      37-40 wave
+    dc.w    $060d, $0000, $0204, $0203, $0000       ;      41, VI 42-45
     dc.w    $0000, $0000, $0000, $0400, $0401       ;      46-50
     dc.w    $0000, $0500, $0000, $0000, $0000       ;      51-55, 52 holes
     dc.w    $0000, $0000                            ;      56, 57
@@ -507,6 +579,8 @@ nm_desy:    dc.b "DESYNC.DAT",0
 nm_drift:   dc.b "DRIFT.DAT",0
     even
 nm_floor:   dc.b "FLOOR.DAT",0
+    even
+nm_still:   dc.b "STILLS.DAT",0
     even
 cut_name:   dc.b "CUTS.DAT",0
     even

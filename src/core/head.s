@@ -68,6 +68,7 @@ GD_SUPER    equ 32
 GD_FOPEN    equ $3d
 GD_FCLOSE   equ $3e
 GD_FREAD    equ $3f
+GD_FSEEK    equ $42
 
 ; ---- BIOS (trap #13) -------------------------------------------------
 B_BCONSTAT  equ 1

@@ -17,15 +17,13 @@
 * **есть** — работает на машине, свой бинарник
 * **перепечь** — это наш же генератор с другими параметрами или наш движок по
   другому исходному кадру; нового кода на ST не нужно
-* **статикой в `TEST.DAT`** — экран уже напечатан нашим генератором как
-  тестовый, но в арке не живёт; считается перепечкой
 * **нет** — нужен новый код или новая печать
 
 Итог по 66 кадрам:
 
-* **32** живут сценами на машине
-* **7** закрываются перепечкой
-* **27** требуют нового кода или новой печати
+* **46** живут сценами на машине
+* **4** закрываются перепечкой
+* **16** требуют нового кода или новой печати
 
 ## I ZERO — `ZERO.TOS`, готово целиком
 
@@ -77,25 +75,25 @@
 | 25 | multiple-spaces-B | `25_IV-space_multiple-spaces-B.png` | нет; `rhythm_walls` OR пол коридора |
 | 26 | expansion | `26_IV-space_expansion.png` | перепечь: `corridor(panel_len=1.1, panel_gap=0.35)` |
 
-## V EXPANSION — 1 живой из 15, самый пустой акт
+## V EXPANSION — 15 из 15, закрыт целиком
 
 | # | кадр | референс | статус |
 |---|---|---|---|
-| 27 | tilt-square | `27_V-expansion_tilt-square.png` | нет; концентрика, повёрнутая и отмасштабированная |
-| 28 | double-perspective-A | `28_V-expansion_double-perspective-A.png` | нет; две точки схода |
-| 29 | double-perspective-B | `29_V-expansion_double-perspective-B.png` | перепечь: OR коридора и туннеля, оба генератора есть |
-| 30 | corridor-in-corridor | `30_V-expansion_corridor-in-corridor.png` | нет; `nested_inverted` |
-| 31 | crossing-planes | `31_V-expansion_crossing-planes.png` | нет |
-| 32 | planes-from-side | `32_V-expansion_planes-from-side.png` | нет |
-| 33 | bend-A | `33_V-expansion_bend-A.png` | нет; пол горкой |
-| 34 | bend-B | `34_V-expansion_bend-B.png` | нет; пол ямой |
-| 35 | spiral | `35_V-expansion_spiral.png` | статикой в `TEST.DAT`; анимация — вращение, печётся как `HYPER` |
-| 36 | hex-tunnel | `36_V-expansion_hex-tunnel.png` | нет |
-| 37 | swirl | `37_V-expansion_swirl.png` | нет; единственная кривая в наборе, считается по пикселям — только печать |
-| 38 | layered | `38_V-expansion_layered.png` | нет; коридор с вырезанной стеной, за ней плоская решётка |
-| 39 | complex-structures | `39_V-expansion_complex-structures.png` | перепечь: коридор плюс линии пола |
+| 27 | tilt-square | `27_V-expansion_tilt-square.png` | **есть, `ARC` 27** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 28 | double-perspective-A | `28_V-expansion_double-perspective-A.png` | **есть, `ARC` 28** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 29 | double-perspective-B | `29_V-expansion_double-perspective-B.png` | **есть, `ARC` 29** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 30 | corridor-in-corridor | `30_V-expansion_corridor-in-corridor.png` | **есть, `ARC` 30** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 31 | crossing-planes | `31_V-expansion_crossing-planes.png` | **есть, `ARC` 31** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 32 | planes-from-side | `32_V-expansion_planes-from-side.png` | **есть, `ARC` 32** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 33 | bend-A | `33_V-expansion_bend-A.png` | **есть, `ARC` 33** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 34 | bend-B | `34_V-expansion_bend-B.png` | **есть, `ARC` 34** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 35 | spiral | `35_V-expansion_spiral.png` | **есть, `ARC` 35** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 36 | hex-tunnel | `36_V-expansion_hex-tunnel.png` | **есть, `ARC` 36** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 37 | swirl | `37_V-expansion_swirl.png` | **есть, `ARC` 37** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 38 | layered | `38_V-expansion_layered.png` | **есть, `ARC` 38** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
+| 39 | complex-structures | `39_V-expansion_complex-structures.png` | **есть, `ARC` 39** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
 | 40 | wave | `40_V-expansion_wave.png` | есть, `WAVE.TOS` |
-| 41 | sunburst | `41_V-expansion_sunburst.png` | нет; 16 клиньев из центра, трапеция из `line.s` |
+| 41 | sunburst | `41_V-expansion_sunburst.png` | **есть, `ARC` 41** — статикой в `STILLS.DAT`, экран читается за ~85 мс |
 
 ## VI ERROR — 6 живых из 16, ещё 2 перепечкой; четверть шоу
 
@@ -288,6 +286,24 @@ z≈5.8, то есть в 37–54 строках от горизонта, а г�
 67–98 под них свободны, `GRID` (37 КБ) и `HALFTONE` (8 КБ) ещё влезают, а
 `CUBES4` (491 КБ) только через общий буфер, то есть ценой чтения как у
 флипбука.
+
+## Статика: носитель, которого не хватало
+
+Акт V почти весь — **одна картинка, а не петля**, и флипбук под это негодный
+носитель: 24 экрана ради стилла это 768 КБ там, где хватает 32. Поэтому стиллы
+лежат вместе в одном `STILLS.DAT`, а ST читает **только нужный экран** — 32000
+байт, около 85 мс против двух секунд у петли. Блокирующее чтение на шесть
+кадров резать на куски не стоит.
+
+Памяти это не стоит вообще: экран кладётся в рабочий буфер развала, который
+простаивает, пока на экране статика. Один баг на этом был — `work0`
+настраивался только при входе в развал, так что статика первой сценой читала
+по нулевому адресу прямо в вектора прерываний и валила машину в двойную шину.
+Теперь буферы настраиваются при старте.
+
+Четырнадцать позиций акта V проверены на машине: каждая совпадает со своим
+экраном в файле **с нулём отличий**. Тем же носителем дальше закрываются дыры
+актов IV и VI — там тоже почти всё статика.
 
 ## Что из этого следует
 

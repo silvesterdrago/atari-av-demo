@@ -119,6 +119,10 @@ dist/DISSOLVE.DAT: src/dis.bin | dist
 	cp $< $@
 dist/CUTS.DAT: src/cut.bin | dist
 	cp $< $@
+dist/STILLS.DAT: src/stills.bin | dist
+	cp $< $@
+src/stills.bin: tools/genstills.py tools/sysload.py
+	python3 tools/genstills.py
 src/cut.bin: tools/gendis.py tools/sysload.py
 	python3 tools/gendis.py cuts
 dist/FLOOR.DAT: src/floor.bin | dist
@@ -175,7 +179,7 @@ dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
      dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT \
-     dist/CUTS.DAT
+     dist/CUTS.DAT dist/STILLS.DAT
 
 # Watch it switch. The number keys drive the rehearsal list; the MIDI pipe is
 # set up too, so tools/pos.py can send positions from another terminal.
@@ -203,7 +207,8 @@ card: spec-check arc dist/PRIMS.TOS
 	@rm -rf dist/card && mkdir -p dist/card
 	@cp dist/ARC.TOS dist/PRIMS.TOS dist/card/
 	@cp dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT dist/DESYNC.DAT \
-	    dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT dist/CUTS.DAT dist/card/
+	    dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT dist/CUTS.DAT \
+	    dist/STILLS.DAT dist/card/
 	@ls -l dist/card
 	@echo "итого: $$(du -sh dist/card | cut -f1)"
 

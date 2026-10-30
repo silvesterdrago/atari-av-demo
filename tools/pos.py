@@ -7,6 +7,9 @@
     tools/pos.py freeze --hold 2    # effect held for two seconds
     tools/pos.py --rate 16          # the strobe's period, in frames
     tools/pos.py --start            # transport start: back to a known state
+    tools/pos.py --ramp 8           # CC 4 up and down over 8 s: where the
+                                    # picture starts to dirty, and its ceiling
+    tools/pos.py --monitor IAC      # print what Live is actually sending
 
 The code IS the position in the storyboard, so `18` means their frame 18 and
 nothing else has to be looked up. ARC.TOS answers 1-66 and 99; a build that
@@ -33,6 +36,8 @@ import time
 
 CH = 16                 # must match CTRL_CH in src/core/head.s
 CC_STROBE = 1           # and CC_STROBE in src/core/tail.s
+CC_FOLLOW = 4           # and CC_FOLLOW: the envelope follower's level
+FOLLOW_CLEAN = 5        # at or under this the ST clears the picture entirely
 HIT_CH = 10             # where drums.py and the pads play
 PAD_BASE = 36           # and PAD_BASE in src/core/head.s
 PER_MIN, PER_MAX = 8, 40        # STROBE_HALF and STROBE_MAX, in frames
@@ -85,6 +90,48 @@ class Fifo:
         os.close(self.fd)
 
 
+class In:
+    """An input, to read what Live sends rather than to send anything.
+
+    Setting the follower by ear is two thresholds -- silence has to read 5 or
+    under, the loudest moment 120 or over -- and neither is visible from the
+    Atari, which only shows their consequences. So this prints the numbers.
+    """
+
+    def __init__(self, hint):
+        try:
+            import mido
+        except ImportError:
+            sys.exit("нет mido: запусти команду через\n"
+                     "  uv run --with mido --with python-rtmidi")
+        names = mido.get_input_names()
+        match = [n for n in names if hint.lower() in n.lower()] if hint else names
+        if not match:
+            sys.exit(f"нет входа с {hint!r}; есть: " + ", ".join(names) or "ничего")
+        self.port = mido.open_input(match[0])
+        self.name = match[0]
+
+    def run(self):
+        print(f"слушаю {self.name}; Ctrl-C чтобы выйти")
+        peak, floor = 0, 127
+        try:
+            for m in self.port:
+                if m.type == "control_change":
+                    if m.control == CC_FOLLOW:
+                        peak = max(peak, m.value)
+                        floor = min(floor, m.value)
+                        print(f"\rCC {m.control} ch{m.channel + 1} = {m.value:3}"
+                              f"   за всё время: низ {floor}, верх {peak}   ",
+                              end="", flush=True)
+                    else:
+                        print(f"\nCC {m.control} ch{m.channel + 1} = {m.value}")
+                elif m.type in ("note_on", "note_off"):
+                    v = getattr(m, "velocity", 0)
+                    print(f"\n{m.type} ch{m.channel + 1} нота {m.note} vel {v}")
+        except KeyboardInterrupt:
+            print(f"\nниже всего {floor}, выше всего {peak}")
+
+
 class Port:
     def __init__(self, hint):
         try:
@@ -131,6 +178,11 @@ def main():
                          f"({VBL/2/PER_MIN:.1f}-{VBL/2/PER_MAX:.1f} Гц)")
     ap.add_argument("--cc", nargs=2, type=int, metavar=("N", "V"), default=None,
                     help="сырой контроллер: номер 0-7 и значение 0-127")
+    ap.add_argument("--ramp", type=float, nargs="?", const=8.0, metavar="SEC",
+                    help="прогнать CC 4 от 0 до 127 и обратно за SEC секунд: "
+                         f"ниже {FOLLOW_CLEAN} картинка обязана быть чистой")
+    ap.add_argument("--monitor", nargs="?", const="", metavar="NAME",
+                    help="слушать вход CoreMIDI и печатать, что приходит")
     ap.add_argument("--list", action="store_true",
                     help="перечислить выходы CoreMIDI и выйти")
     ap.add_argument("--start", action="store_true", help="транспорт: start")
@@ -146,7 +198,11 @@ def main():
         for n in mido.get_output_names():
             print(n)
         return
-    if not a.what and not (a.start or a.stop or a.rate or a.cc or a.hit):
+    if a.monitor is not None:
+        In(a.monitor).run()
+        return
+    if not a.what and not (a.start or a.stop or a.rate or a.cc or a.hit
+                           or a.ramp):
         ap.error("нечего слать")
     if a.rate is not None and not (PER_MIN <= a.rate <= PER_MAX):
         ap.error(f"период {PER_MIN}..{PER_MAX} кадров; короче нельзя, "
@@ -182,6 +238,16 @@ def main():
                  f"период строба {a.rate} кадров, {VBL/2/a.rate:.2f} Гц (CC {CC_STROBE} = {v})")
         if a.cc:
             send([ctl, a.cc[0], a.cc[1]], f"CC {a.cc[0]} = {a.cc[1]}")
+        if a.ramp:
+            # 20 Hz, which is the rate a follower in Live is asked to send at
+            steps = max(2, int(a.ramp * 20) // 2)
+            seq = list(range(0, 128, max(1, 128 // steps)))
+            for v in seq + seq[::-1]:
+                dest.raw([ctl, CC_FOLLOW, v])
+                print(f"\rCC {CC_FOLLOW} = {v:3}", end="", flush=True)
+                time.sleep(a.ramp / (2 * len(seq)))
+            dest.raw([ctl, CC_FOLLOW, 0])
+            print(f"\nпрогон окончен; чисто должно быть при {FOLLOW_CLEAN} и ниже")
         if a.hit:
             # the oldest path there is, and the one every build understands:
             # if this does nothing either, no MIDI is reaching the machine

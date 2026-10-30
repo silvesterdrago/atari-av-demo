@@ -193,6 +193,12 @@ dis_frame:
 .ok:
     move.w  d0,fphase
 
+    move.w  follow,d1           ; the follower is a floor under the break-up:
+    lsl.w   #3,d1               ; loud means broken, and a hit adds on top
+    cmp.w   tgt,d1
+    bls.s   .nofloor
+    move.w  d1,tgt
+.nofloor:
     move.w  tgt,d1              ; the target sinks on its own
     beq.s   .notgt
     sub.w   #DECAY,d1

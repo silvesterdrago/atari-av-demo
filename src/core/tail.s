@@ -276,6 +276,13 @@ next_rng:
     rts
 
 decay_level:
+    ifnd FOLLOW                 ; -DFOLLOW=<0..255> pins it, for measuring
+    move.w  follow,d0           ; the follower sinks on its own: if Live stops
+    beq.s   .nofall             ; sending, the picture must come back to rest
+    subq.w  #1,d0               ; rather than hang at whatever came last
+    move.w  d0,follow
+.nofall:
+    endif
     cmp.w   #150,idle_ticks
     bcc.s   .freerun
     addq.w  #1,idle_ticks
@@ -1047,6 +1054,7 @@ cmd_release:
 CC_STROBE   equ 1
 CC_SHIFT    equ 2               ; read straight out of cc_val by FX_SHIFT
 CC_NOISE    equ 3
+CC_FOLLOW   equ 4               ; an envelope follower in Live, as a number
 
 cmd_cc:
     movem.l d0-d2/a0,-(sp)
@@ -1054,6 +1062,13 @@ cmd_cc:
     bcc.s   .out                ; CC 0..7 are kept, the rest ignored
     lea     cc_val,a0
     move.b  d0,(a0,d1.w)
+    cmp.w   #CC_FOLLOW,d1       ; the follower is not a parameter but a LEVEL:
+    bne.s   .nofollow           ; it arrives continuously and the show leans on
+    add.w   d0,d0               ; it as a floor, so hits still punch above it
+    move.w  d0,follow
+    clr.w   idle_ticks          ; something is playing, so the idle generator
+    bra.s   .out                ; must keep out of the way
+.nofollow:
     cmp.w   #CC_STROBE,d1
     bne.s   .out
     move.w  d0,d2               ; 0..127 across STROBE_HALF..STROBE_MAX
@@ -1109,6 +1124,7 @@ scr_rows:       ds.w 1
 half_rows:      ds.w 1
 max_rows:       ds.w 1
 level:          ds.w 1
+follow:         ds.w 1
 quit_flag:      ds.w 1
 midi_count:     ds.w 1
 idle_ticks:     ds.w 1

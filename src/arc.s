@@ -507,13 +507,18 @@ set_stamp:
 ; A baked loop playing: the machine writes one register and nothing else.
 ;----------------------------------------------------------------------
 fb_frame:
-    move.w  fspeed,d0           ; a kick decays back to the cruise
-    cmp.w   #FB_CRUISE+FB_SLOW,d0
+    move.w  follow,d1           ; the follower raises the FLOOR the speed
+    mulu    #3,d1               ; decays to, so the loop breathes with the
+    add.w   #FB_CRUISE,d1       ; sound and a hit still punches above it
+    move.w  fspeed,d0           ; a kick decays back to that cruise
+    move.w  d1,d2
+    add.w   #FB_SLOW,d2
+    cmp.w   d2,d0
     bcs.s   .sk
     sub.w   #FB_SLOW,d0
     bra.s   .sp
 .sk:
-    move.w  #FB_CRUISE,d0
+    move.w  d1,d0
 .sp:
     move.w  d0,fspeed
     tst.w   fx_half             ; held: half the step, so the loop crawls

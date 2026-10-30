@@ -37,6 +37,7 @@ CC_TEXT = {
     "CC_STROBE": "период строба, 0–127 → {STROBE_HALF}–{STROBE_MAX} кадров",
     "CC_SHIFT":  "потолок сдвига {FX_SHIFT}, до {SHIFT_MAX} страниц по 256 байт",
     "CC_NOISE":  "потолок шума {FX_NOISE}, до {NOISE_MAX} полосок",
+    "CC_FOLLOW": "огибающая из Live: пол под скоростью петли и под разломом",
 }
 # The names the positions go by, so the table reads as their storyboard does.
 POS_TEXT = {1: "чёрное", 2: "точка", 3: "линия", 4: "две линии", 5: "квадрат",

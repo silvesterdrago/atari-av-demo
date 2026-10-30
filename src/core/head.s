@@ -229,6 +229,9 @@ start:
     bsr     fx_reset
     move.w  #STROBE_HALF,strobe_per
     move.w  #12,nz_count
+    ifd FOLLOW
+    move.w  #FOLLOW,follow      ; pinned, and decay_level leaves it alone
+    endif
     ifd STROBE
     move.w  #1,strobe_on        ; boot strobing, for measuring without a key
     endif

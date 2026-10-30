@@ -69,7 +69,7 @@
 | 20 | room | `20_IV-space_room.png` | **есть, `ARC` 20** — статикой: фазы у этого генератора нет |
 | 21 | branching | `21_IV-space_branching.png` | **есть, `ARC` 21** — петля `BRANCH.DAT`, движение вперёд как в партитуре |
 | 22 | pit-thin | `22_IV-space_pit-thin.png` | **есть, `ARC` 22** — петля `PIT.DAT`, движение вперёд как в партитуре |
-| 23 | pit-bold | `23_IV-space_pit-bold.png` | **есть, `ARC` 23** — петля `PITBOLD.DAT`, движение вперёд как в партитуре |
+| 23 | pit-bold | `23_IV-space_pit-bold.png` | **есть, `ARC` 23** — петля `PITBOLD.DAT`: сетка стоит, едет яма. Крупным планом в кадре три глубины, и марширующий пол двигал ровно одну поперечину — это читалось как сбой, а не как движение |
 | 24 | multiple-spaces-A | `24_IV-space_multiple-spaces-A.png` | **есть, `ARC` 24** — статикой: фазы у этого генератора нет |
 | 25 | multiple-spaces-B | `25_IV-space_multiple-spaces-B.png` | **есть, `ARC` 25** — петля `WALLS.DAT`, движение вперёд как в партитуре |
 | 26 | expansion | `26_IV-space_expansion.png` | **есть, `ARC` 26** — петля `EXPAND.DAT`, движение вперёд как в партитуре |

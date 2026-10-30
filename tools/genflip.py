@@ -38,6 +38,29 @@ NFRAMES = 24            # must match src/shows/flipbook.inc
 #  drift their axis_loss holds the vanishing point at a FIXED offset, but the
 #        loop it came from sweeps it. A full sine over the turn sweeps it out
 #        to one side and back through the other, and closes on itself.
+PITB_ZFAR = 3.2 ** 1.25
+
+
+def pitb(s, p):
+    """23 close up: the floor stands still and the pit is what travels.
+
+    With three depths in frame a marching floor moves exactly one transverse
+    line, which reads as a glitch rather than as motion. So the lines are
+    fixed at phase 0 and the pit rides instead: the pits sit at z0 * R**k, a
+    turn divides z by R, and index k lands where k-1 was, so the loop closes
+    with the near one leaving the bottom as the next appears at the horizon.
+    Far first, because cut_pit blacks out its own rim.
+    """
+    im = s.floor(phase=0.0, xs=range(-4, 5, 2),
+                 zs=tuple(3.2 ** (k / 2) for k in range(3)),
+                 zfar=PITB_ZFAR, t=16)
+    for k in range(3, -3, -1):
+        z0 = 1.05 * 4.5 ** (k - p)
+        if 0.55 <= z0 <= PITB_ZFAR:
+            im = s.cut_pit(im, -1.8, 1.8, z0, z0 + 1.1, 1.0, 20)
+    return im
+
+
 SCENES = {"corr":  lambda s, p: s.corridor(phase=p),
           "tun":   lambda s, p: s.tunnel(phase=p, t=28),
           "wave":  lambda s, p: s.wave(phase=p, amp=58),
@@ -50,15 +73,7 @@ SCENES = {"corr":  lambda s, p: s.corridor(phase=p),
           "tunp":  lambda s, p: s.tunnel(phase=p, n=4, ratio=1.7, t=18),
           "branch": lambda s, p: s.branching(phase=p),
           "pit":   lambda s, p: s.pit(phase=p),
-          "pitb":  lambda s, p: s.floor(phase=p, xs=range(-4, 5, 2),
-                                        zs=tuple(3.2 ** (_k / 2) for _k in range(3)),
-                                        zfar=3.2 ** 1.25, t=16,  # inside
-                                        # [zs[-1], zs[-1]*step): above that the
-                                        # one extra depth is drawn at phase 0
-                                        # and gone at phase 1, and the loop
-                                        # stops closing -- the same trap the
-                                        # floor's own zfar had
-                                        hole=(-3.0, 3.0, 1.05, 2.4, 1.0, 20)),
+          "pitb":  pitb,
           "walls": lambda s, p: _or(s.rhythm_walls(phase=p),
                                     s.corridor(phase=p, panels=False, light=False)),
           "expand": lambda s, p: s.corridor(phase=p, panel_len=1.1, panel_gap=0.35),

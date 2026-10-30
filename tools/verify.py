@@ -23,6 +23,9 @@ from PIL import Image, ImageChops
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VASM = f"{ROOT}/tools/vasm/vasmm68k_mot"
 TOS = "/opt/homebrew/share/hatari/tos.img"
+# low byte of a $02xx/$03xx position -> the file it was baked from
+BINS = ["corr", "tun", "wave", "desy", "drift", "floor",
+        "tunp", "branch", "pit", "pitb", "walls", "expand"]
 VBLS = 900                      # EmuTOS boots for ~800 of them before ours runs
 SHOT = VBLS - 10                # and the still itself needs six frames to read
 FRAMESZ = 32000
@@ -91,6 +94,15 @@ def main():
                 diff = min(d1, d2)
                 pol = "" if d1 <= d2 else ", палитра инверсная"
                 print(f"поз {pos}: экран {idx}, отличий — {diff}{pol}")
+                bad += diff != 0
+            elif v >> 8 in (2, 3):
+                name = BINS[v & 0xFF]
+                buf = open(f"{ROOT}/src/{name}.bin", "rb").read()
+                n = len(buf) // FRAMESZ
+                diff = min(sum(a != b for a, b in
+                               zip(got, buf[i * FRAMESZ:(i + 1) * FRAMESZ]))
+                           for i in range(n))
+                print(f"поз {pos}: петля {name}, лучший экран отличий — {diff}")
                 bad += diff != 0
             else:
                 ink = min(sum(bin(b).count("1") for b in got),

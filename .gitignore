@@ -61,3 +61,6 @@ plasma_preview.png
 src/shuriken.inc
 src/tetrapod.inc
 tetrapod_preview.png
+
+# документы от художника и площадки: читаем, но не версионируем
+*.docx

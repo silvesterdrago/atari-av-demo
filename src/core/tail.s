@@ -646,10 +646,15 @@ scene_key:
 ; strobe costs nothing and can sit over any scene.
 ;
 ; STROBE_HALF is the floor on the period, not just its default, and it is
-; not a build flag: one inversion every 8 frames is 4.5 Hz on the glass,
-; the register will flip every frame at 71 Hz if asked, and 15-25 Hz is
-; where photosensitive seizure risk peaks. A controller may stretch the
-; period but never shorten it past this.
+; not a build flag. Twelve frames is 5.93 inversions a second, which is 2.97
+; FLASHES -- a flash being a pair of opposing changes -- against the three a
+; second the show's own spec cites, WCAG 2.3.1. Eight frames, which this was,
+; gives 4.45 and breaks it. A controller may stretch the period but never
+; shorten it past this.
+;
+; FLASH_LOCK holds the single-frame flash to the same rule, so an
+; arrangement cannot break it by sending the code faster than the eye can
+; take: the machine refuses rather than trusting the sequence.
 ;
 ; The palette is written every frame while an effect is inverting rather
 ; than only on the turns: a show may write it too -- GRID and HYPER
@@ -657,10 +662,16 @@ scene_key:
 ; back on the next frame instead of the two fighting over it. When nothing
 ; is inverting, the register is left alone.
 ;----------------------------------------------------------------------
-STROBE_HALF equ 8               ; frames an inversion holds, and the floor
+STROBE_HALF equ 12              ; frames an inversion holds, and the floor
+FLASH_LOCK  equ 24              ; frames between one-frame flashes, so three
+                                ; a second is a ceiling and not a target
 STROBE_MAX  equ 40              ; and the other end of what a knob may set
 
 fx_frame:
+    tst.w   flash_lock
+    beq.s   .nolock
+    subq.w  #1,flash_lock
+.nolock:
     move.w  fx_shift,d0         ; the displacement rides in the base register,
     or.w    sh_last,d0          ; so it only lands when somebody writes it --
     beq.s   .nobase             ; and a still writes it once, at load. So the
@@ -937,6 +948,7 @@ fx_auto_frame:
 ; because the tape stopped -- would otherwise stay on for good.
 ;----------------------------------------------------------------------
 fx_reset:
+    clr.w   flash_lock
     clr.w   sh_last
     clr.w   nz_on
     clr.w   nz_held
@@ -1029,6 +1041,9 @@ cmd_press:
 .fl:
     cmp.w   #FX_FLASH,d1
     bne.s   .inv
+    tst.w   flash_lock          ; too soon after the last: refused, not queued
+    bne     .out
+    move.w  #FLASH_LOCK,flash_lock
     move.w  #2,fx_flash         ; one inverted frame, then the frame that
     bra.s   .out                ; gives the register back
 .inv:
@@ -1223,6 +1238,7 @@ clk_tick:       ds.w 1
 clk_beat:       ds.w 1
 fx_freeze:      ds.w 1
 fx_flash:       ds.w 1
+flash_lock:     ds.w 1
 fx_invert:      ds.w 1
 fx_shift:       ds.w 1
 nz_on:          ds.w 1

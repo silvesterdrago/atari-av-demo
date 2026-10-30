@@ -45,6 +45,7 @@
 ;======================================================================
 SCENES      equ 1               ; the core sends commands to scene_select
 HAS_SCENE_KEY equ 1             ; and the number keys through our own list
+HAS_SHOW_FX equ 1               ; and effect codes the core does not know
 POOL_SIZE   equ 1024
 RANGE_PAGES equ 131             ; two whole screens for the morph family
 
@@ -75,6 +76,8 @@ POS_MAX     equ 66
 SAFE_POS    equ 99              ; ours, not theirs
 SAFE_STATE  equ 26
 
+FX_REVERSE  equ 107             ; the loop backwards, while held
+FX_HALF     equ 108             ; and at half speed
 PT_Y0       equ 100             ; the block of position 14; the horizon bar
 PT_ROWS     equ 18              ; starts on row 118, below every row of it
 PT_BYTE     equ 39
@@ -94,6 +97,11 @@ show_init:
     clr.w   stamped
     clr.w   kind
     bsr     mo_init
+    ifd FX
+    move.w  #FX,d1              ; -DFX=<code> presses an effect at start-up,
+    moveq   #100,d0             ; which is how one is checked with MIDI and the
+    bsr     cmd_press           ; keyboard out of the loop: d1 code, d0 strength
+    endif
     ifd GOTO
     move.w  #GOTO,d0            ; -DGOTO=<position> opens on one, which is how
     else                        ; a position is checked with MIDI out of the
@@ -363,6 +371,27 @@ load_step:
     rts
 
 ;----------------------------------------------------------------------
+; Effect codes past the core's own. Both are about the baked loops, which
+; is why they are ours: the core has no idea there is a loop.
+;----------------------------------------------------------------------
+show_fx:                        ; d1 = code
+    cmp.w   #FX_REVERSE,d1
+    bne.s   .h
+    move.w  #1,fx_rev
+    rts
+.h:
+    cmp.w   #FX_HALF,d1
+    bne.s   .out
+    move.w  #1,fx_half
+.out:
+    rts
+
+show_fx_off:
+    clr.w   fx_rev
+    clr.w   fx_half
+    rts
+
+;----------------------------------------------------------------------
 ; d0 = 1 to stand the block on the horizon, 0 to take it away. Two BYTE
 ; writes a row: 16 px centred on 320 begin at byte 39, and a word write to
 ; an odd address is an address error on a 68000.
@@ -410,7 +439,17 @@ fb_frame:
     move.w  #FB_CRUISE,d0
 .sp:
     move.w  d0,fspeed
+    tst.w   fx_half             ; held: half the step, so the loop crawls
+    beq.s   .full
+    asr.w   #1,d0
+.full:
+    tst.w   fx_rev              ; held: the step goes the other way, and the
+    beq.s   .fwd                ; phase wraps at the bottom as well as the top
+    neg.w   d0
+.fwd:
     add.w   fphase,d0           ; wrap on the loop itself, not on 65536
+    bpl.s   .wrap
+    add.w   #FB_WRAP,d0
 .wrap:
     cmp.w   #FB_WRAP,d0
     bcs.s   .ok
@@ -504,6 +543,8 @@ fb_ready:       ds.w 1
 fphase:         ds.w 1
 fspeed:         ds.w 1
 stamped:        ds.w 1
+fx_rev:         ds.w 1
+fx_half:        ds.w 1
 kind:           ds.w 1          ; 0 the morph family, 1 a baked loop
     ifd CYCLE
 cyc_ctr:        ds.w 1

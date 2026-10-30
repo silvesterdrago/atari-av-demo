@@ -173,6 +173,12 @@ measure_overrun:
 ;----------------------------------------------------------------------
 set_screen_base:
     move.l  d0,cur_base
+    move.w  fx_shift,d1         ; a held displacement: the base register steps
+    beq.s   .noshift            ; 256 bytes, which is three rows down and 128
+    ext.l   d1                  ; pixels across, so one page is a geometric
+    lsl.l   #8,d1               ; fault and not a smear. It only moves where
+    add.l   d1,d0               ; the beam READS, so nothing can be corrupted
+.noshift:
     lsr.l   #8,d0
     move.b  d0,SCR_MID
     lsr.l   #8,d0
@@ -609,6 +615,12 @@ poll_keyboard:
 ; codes are not simply 0..8 -- ARC addresses positions in the storyboard --
 ; defines HAS_SCENE_KEY and maps them itself.
 ;----------------------------------------------------------------------
+    ifnd HAS_SHOW_FX            ; a show with effects of its own defines these
+show_fx:                        ; two; otherwise an unknown code does nothing
+show_fx_off:
+    rts
+    endif
+
     ifnd HAS_SCENE_KEY
 scene_key:
     ifd SCENES
@@ -652,6 +664,11 @@ fx_frame:
     move.w  #$000,PALETTE_HW
     rts
 .nofl:
+    tst.w   fx_invert           ; held inverted: no flashing at all, which is
+    beq.s   .nohold             ; the one inversion with no rate to limit
+    move.w  #$777,PALETTE_HW
+    rts
+.nohold:
     tst.w   strobe_sync         ; locked to the beat, not to the frame
     beq.s   .free
     move.w  beat_ph,d0
@@ -684,6 +701,9 @@ fx_frame:
 ; because the tape stopped -- would otherwise stay on for good.
 ;----------------------------------------------------------------------
 fx_reset:
+    clr.w   fx_invert
+    clr.w   fx_shift
+    bsr     show_fx_off
     clr.w   strobe_on
     clr.w   strobe_held
     clr.w   strobe_sync
@@ -724,6 +744,9 @@ FX_STROBEH  equ 101             ; while held
 FX_SYNC     equ 102             ; locked to the beat, while held
 FX_FREEZE   equ 103             ; while held
 FX_FLASH    equ 104             ; one inverted frame
+FX_INVERT   equ 105             ; held inverted, not flashing
+FX_SHIFT    equ 106             ; held displaced by CC 2 pages
+FX_LAST     equ 106             ; past this a show gets the code itself
 
 cmd_press:
     movem.l d0-d1/a0,-(sp)
@@ -733,12 +756,12 @@ cmd_press:
     exg     d0,d1               ; scene_select takes the code in d0 and the
     bsr     scene_select        ; strength in d1, which a show may ignore
     endif
-    bra.s   .out
+    bra     .out
 .fx:
     cmp.w   #FX_STROBE,d1
     bne.s   .h
     bsr     strobe_toggle
-    bra.s   .out
+    bra     .out
 .h:
     cmp.w   #FX_STROBEH,d1
     bne.s   .s
@@ -746,22 +769,43 @@ cmd_press:
     move.w  #1,strobe_held
     clr.w   strobe_ctr
     clr.w   strobe_ph
-    bra.s   .out
+    bra     .out
 .s:
     cmp.w   #FX_SYNC,d1
     bne.s   .f
     move.w  #1,strobe_sync
-    bra.s   .out
+    bra     .out
 .f:
     cmp.w   #FX_FREEZE,d1
     bne.s   .fl
     move.w  #1,fx_freeze
-    bra.s   .out
+    bra     .out
 .fl:
     cmp.w   #FX_FLASH,d1
-    bne.s   .out
+    bne.s   .inv
     move.w  #2,fx_flash         ; one inverted frame, then the frame that
-.out:                           ; gives the register back
+    bra.s   .out                ; gives the register back
+.inv:
+    cmp.w   #FX_INVERT,d1
+    bne.s   .sh
+    move.w  #1,fx_invert
+    bra     .out
+.sh:
+    cmp.w   #FX_SHIFT,d1
+    bne.s   .own
+    moveq   #0,d0               ; CC 2 says how far, one page by default
+    move.b  cc_val+2,d0
+    lsr.w   #4,d0
+    bne.s   .amt
+    moveq   #1,d0
+.amt:
+    move.w  d0,fx_shift
+    bra     .out
+.own:
+    cmp.w   #FX_LAST,d1         ; a code the core does not know belongs to
+    bls.s   .out                ; the show: loops and their speed are its own
+    bsr     show_fx
+.out:
     movem.l (sp)+,d0-d1/a0
     rts
 
@@ -770,6 +814,21 @@ cmd_press:
 ; go of a hold must not cancel a strobe somebody switched on deliberately.
 ;----------------------------------------------------------------------
 cmd_release:
+    cmp.w   #FX_INVERT,d1
+    bne.s   .sh
+    clr.w   fx_invert
+    move.w  #$000,PALETTE_HW
+    rts
+.sh:
+    cmp.w   #FX_SHIFT,d1
+    bne.s   .own
+    clr.w   fx_shift
+    rts
+.own:
+    cmp.w   #FX_LAST,d1
+    bls.s   .known
+    bra     show_fx_off
+.known:
     cmp.w   #FX_STROBEH,d1
     bne.s   .s
     tst.w   strobe_held
@@ -891,6 +950,8 @@ clk_tick:       ds.w 1
 clk_beat:       ds.w 1
 fx_freeze:      ds.w 1
 fx_flash:       ds.w 1
+fx_invert:      ds.w 1
+fx_shift:       ds.w 1
 cc_val:         ds.b 8
     even
 midi_status:    ds.b 1

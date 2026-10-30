@@ -661,6 +661,13 @@ STROBE_HALF equ 8               ; frames an inversion holds, and the floor
 STROBE_MAX  equ 40              ; and the other end of what a knob may set
 
 fx_frame:
+    move.w  fx_shift,d0         ; the displacement rides in the base register,
+    or.w    sh_last,d0          ; so it only lands when somebody writes it --
+    beq.s   .nobase             ; and a still writes it once, at load. So the
+    move.w  fx_shift,sh_last    ; base is rewritten from cur_base while the
+    move.l  cur_base,d0         ; shift lives, and once more when it dies
+    bsr     set_screen_base
+.nobase:
     tst.w   fx_flash            ; one inverted frame, then hand the register
     beq.s   .nofl               ; back -- a flash that forgot to would stick
     subq.w  #1,fx_flash
@@ -877,12 +884,63 @@ fx_depth:
     rts
 
 ;----------------------------------------------------------------------
+; What the follower does on its own, once a show says it may.
+;
+; A still is a single picture and nothing in it moves, so without this it
+; sits dead while the room is loud. With fx_auto set, the follower drives
+; the noise and the displacement by itself -- no note needed, the picture
+; breathes with the sound. Below AUTO_FLOOR it is left completely alone, so
+; quiet means clean rather than faintly dirty.
+;
+; A held effect always wins: while a note is down its velocity governs, and
+; letting go hands the parameter back to the follower.
+;----------------------------------------------------------------------
+fx_auto_frame:
+    tst.w   fx_auto
+    beq.s   .out
+    movem.l d0-d2,-(sp)
+    move.w  follow,d2
+    cmp.w   #AUTO_FLOOR,d2
+    bcc.s   .loud
+    moveq   #0,d2               ; quiet: clean picture, nothing held
+.loud:
+    tst.w   nz_held
+    bne.s   .shift
+    tst.w   d2
+    beq.s   .quietnz
+    move.w  d2,d0
+    mulu    #NOISE_MAX-1,d0
+    divu    #255,d0
+    and.l   #$ffff,d0
+    addq.w  #1,d0
+    move.w  d0,nz_count
+    move.w  #1,nz_on
+    bra.s   .shift
+.quietnz:
+    clr.w   nz_on
+.shift:
+    tst.w   sh_held
+    bne.s   .done
+    move.w  d2,d0
+    mulu    #AUTO_SHIFT,d0
+    divu    #255,d0
+    and.l   #$ffff,d0
+    move.w  d0,fx_shift
+.done:
+    movem.l (sp)+,d0-d2
+.out:
+    rts
+
+;----------------------------------------------------------------------
 ; Everything off and the register handed back. Transport start and stop
 ; both come through here: a held effect whose note-off never arrives --
 ; because the tape stopped -- would otherwise stay on for good.
 ;----------------------------------------------------------------------
 fx_reset:
+    clr.w   sh_last
     clr.w   nz_on
+    clr.w   nz_held
+    clr.w   sh_held
     clr.w   fx_invert
     clr.w   fx_shift
     bsr     show_fx_off
@@ -931,6 +989,8 @@ FX_SHIFT    equ 106             ; held displaced by CC 2 pages
 FX_NOISE    equ 109             ; held: stripes of noise over the picture
 SHIFT_MAX   equ 8               ; pages, and stripes, that a knob may ask for
 NOISE_MAX   equ 16
+AUTO_SHIFT  equ 4               ; and what the follower may reach on its own
+AUTO_FLOOR  equ 12              ; below this the picture is left alone
 NZ_ROWS     equ 48              ; rows one frame may dirty, and the size of
 NZ_BYTES    equ 1536            ; the backup that puts them back
 
@@ -983,6 +1043,7 @@ cmd_press:
     moveq   #SHIFT_MAX,d2
     bsr     fx_depth            ; velocity picks inside what the knob allows
     move.w  d0,fx_shift
+    move.w  #1,sh_held
     bra     .out
 .nz:
     cmp.w   #FX_NOISE,d1
@@ -992,6 +1053,7 @@ cmd_press:
     bsr     fx_depth
     move.w  d0,nz_count
     move.w  #1,nz_on
+    move.w  #1,nz_held
     bra     .out
 .own:
     bsr     show_fx             ; any code the core does not know belongs to
@@ -1014,11 +1076,13 @@ cmd_release:
 .sh:
     cmp.w   #FX_SHIFT,d1
     bne.s   .nz
-    clr.w   fx_shift
+    clr.w   sh_held             ; letting go hands it back to the follower,
+    clr.w   fx_shift            ; which may put it straight back
     rts
 .nz:
     cmp.w   #FX_NOISE,d1
     bne.s   .own
+    clr.w   nz_held
     clr.w   nz_on               ; the rows go back on the next frame, by the
     rts                         ; same path that puts them back every frame
 .own:
@@ -1125,6 +1189,10 @@ half_rows:      ds.w 1
 max_rows:       ds.w 1
 level:          ds.w 1
 follow:         ds.w 1
+fx_auto:        ds.w 1
+nz_held:        ds.w 1
+sh_held:        ds.w 1
+sh_last:        ds.w 1
 quit_flag:      ds.w 1
 midi_count:     ds.w 1
 idle_ticks:     ds.w 1

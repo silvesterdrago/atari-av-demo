@@ -241,6 +241,7 @@ scene_select:
     move.w  d7,ld_dis
     clr.l   ld_done
     move.w  #1,loading
+    clr.w   fx_auto
     move.w  #KIND_LOOP,kind     ; the loop owns the screen from here, and
     bra     .out                ; plays the screens as they land
 .entered:
@@ -355,6 +356,8 @@ load_still:                     ; d0 = which screen
     cmp.l   #FRAMESZ,d5
     bne.s   .done               ; a short read is not our file
     move.w  #KIND_STILL,kind
+    move.w  #1,fx_auto          ; nothing in a still moves by itself, so the
+                                ; follower is let loose on it
     move.l  work0,d0
     bsr     set_screen_base
 .done:
@@ -375,6 +378,7 @@ load_still:                     ; d0 = which screen
 ;----------------------------------------------------------------------
 to_morph:
     movem.l d0-d1,-(sp)
+    clr.w   fx_auto             ; the morph moves on its own
     clr.w   kind
     bsr     load_abort
     move.w  #1,mo_force

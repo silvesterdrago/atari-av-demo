@@ -250,6 +250,7 @@ mainloop:
     bne.s   .frozen
     bsr     show_frame
 .frozen:
+    bsr     fx_auto_frame       ; what the follower does without a note
     bsr     fx_frame            ; after the show, so it owns the palette
 
     ; The base register is latched per frame, so what is painted at the end

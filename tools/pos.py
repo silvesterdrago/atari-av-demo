@@ -40,7 +40,7 @@ CC_FOLLOW = 4           # and CC_FOLLOW: the envelope follower's level
 FOLLOW_CLEAN = 5        # at or under this the ST clears the picture entirely
 HIT_CH = 10             # where drums.py and the pads play
 PAD_BASE = 36           # and PAD_BASE in src/core/head.s
-PER_MIN, PER_MAX = 8, 40        # STROBE_HALF and STROBE_MAX, in frames
+PER_MIN, PER_MAX = 12, 40       # STROBE_HALF and STROBE_MAX, in frames
 VBL = 71.2
 POS_MAX = 66
 SAFE = 99
@@ -232,10 +232,18 @@ def main():
         if a.start:
             send([START], "транспорт: start")
         if a.rate is not None:
-            # the ST does per = PER_MIN + v*(PER_MAX-PER_MIN)/127, so invert it
-            v = round((a.rate - PER_MIN) * 127 / (PER_MAX - PER_MIN))
+            # the ST does per = PER_MIN + v*(PER_MAX-PER_MIN)//127 in INTEGER
+            # arithmetic, so the inverse has to round up: rounding down asks
+            # for a shorter period than requested, and a shorter period is
+            # more flashes a second, which is the one direction that is not
+            # ours to give away
+            span = PER_MAX - PER_MIN
+            v = min(127, -((-(a.rate - PER_MIN) * 127) // span))
+            got = PER_MIN + (v * span) // 127
             send([ctl, CC_STROBE, v],
-                 f"период строба {a.rate} кадров, {VBL/2/a.rate:.2f} Гц (CC {CC_STROBE} = {v})")
+                 f"период строба {got} кадров, {VBL/2/got:.2f} Гц "
+                 f"(CC {CC_STROBE} = {v})"
+                 + ("" if got == a.rate else f" — ближайшее к {a.rate}, шкала грубее"))
         if a.cc:
             send([ctl, a.cc[0], a.cc[1]], f"CC {a.cc[0]} = {a.cc[1]}")
         if a.ramp:

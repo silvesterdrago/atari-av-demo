@@ -932,8 +932,8 @@ cmd_press:
 .sh:
     cmp.w   #FX_SHIFT,d1
     bne.s   .nz
-    moveq   #0,d0               ; CC 2 says how far, one page by default
-    move.b  cc_val+2,d0
+    moveq   #0,d0               ; CC_SHIFT says how far, one page by default
+    move.b  cc_val+CC_SHIFT,d0
     lsr.w   #4,d0
     bne.s   .amt
     moveq   #1,d0
@@ -1004,6 +1004,7 @@ cmd_release:
 ; the strobe is rate-limited away from.
 ;----------------------------------------------------------------------
 CC_STROBE   equ 1
+CC_SHIFT    equ 2               ; read straight out of cc_val by FX_SHIFT
 CC_NOISE    equ 3
 
 cmd_cc:

@@ -194,13 +194,21 @@ ARCRUN := --tos $(TOS) --machine st --memsize 1 --monitor mono --sound off \
 # Everything the card needs and nothing else, in one directory, so there is no
 # guessing about which binary is on it. ARC.TOS is the show; PRIMS.TOS is the
 # fallback that cannot fail for lack of a file, because it reads none.
-card: arc dist/PRIMS.TOS
+# The spec another session writes the arrangement against is generated from
+# the source, so a card cannot be built against a stale one.
+spec:
+	python3 tools/specgen.py
+
+card: spec-check arc dist/PRIMS.TOS
 	@rm -rf dist/card && mkdir -p dist/card
 	@cp dist/ARC.TOS dist/PRIMS.TOS dist/card/
 	@cp dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT dist/DESYNC.DAT \
 	    dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT dist/CUTS.DAT dist/card/
 	@ls -l dist/card
 	@echo "итого: $$(du -sh dist/card | cut -f1)"
+
+spec-check:
+	@python3 tools/specgen.py --check
 
 # The same binary with the diagnostic bars on, to put on the card when
 # something does not arrive: bar two counts MIDI bytes the program consumed,

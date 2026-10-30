@@ -566,8 +566,8 @@ pos_tbl:
     dc.w    $0106, $0107, $0108, $0109, $010a       ; II   06-10
     dc.w    $010c, $0000                            ;      11, 12 radial
     dc.w    $0205, $0305, $010e, $010f              ; III  13-16
-    dc.w    $0201, $0200, $0000, $0000, $0000       ; IV   17-21
-    dc.w    $0000, $0000, $0000, $0000, $0000       ;      22-26
+    dc.w    $0201, $0200, $0206, $060e, $0207       ; IV   17-21
+    dc.w    $0208, $0209, $060f, $020a, $020b       ;      22-26
     dc.w    $0600, $0601, $0602, $0603, $0604       ; V    27-31
     dc.w    $0605, $0606, $0607, $0608, $0609       ;      32-36
     dc.w    $060a, $060b, $060c, $0202              ;      37-40 wave
@@ -582,6 +582,7 @@ pos_tbl:
     even
 name_tbl:
     dc.l    nm_corr, nm_tun, nm_wave, nm_desy, nm_drift, nm_floor
+    dc.l    nm_tunp, nm_branch, nm_pit, nm_pitb, nm_walls, nm_expand
 nm_corr:    dc.b "CORRIDOR.DAT",0
     even
 nm_tun:     dc.b "TUNNEL.DAT",0
@@ -593,6 +594,18 @@ nm_desy:    dc.b "DESYNC.DAT",0
 nm_drift:   dc.b "DRIFT.DAT",0
     even
 nm_floor:   dc.b "FLOOR.DAT",0
+    even
+nm_tunp:    dc.b "TUNPLAIN.DAT",0
+    even
+nm_branch:  dc.b "BRANCH.DAT",0
+    even
+nm_pit:     dc.b "PIT.DAT",0
+    even
+nm_pitb:    dc.b "PITBOLD.DAT",0
+    even
+nm_walls:   dc.b "WALLS.DAT",0
+    even
+nm_expand:  dc.b "EXPAND.DAT",0
     even
 nm_still:   dc.b "STILLS.DAT",0
     even

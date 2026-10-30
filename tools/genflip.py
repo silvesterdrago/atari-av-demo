@@ -16,7 +16,9 @@ row, MSB leftmost, a set bit is ink.
 """
 import math
 import sys
-from PIL import Image
+from PIL import Image, ImageChops
+
+_or = ImageChops.logical_or         # two systems of depth over each other
 from sysload import H, W, pack, sysmod
 
 NFRAMES = 24            # must match src/shows/flipbook.inc
@@ -41,6 +43,25 @@ SCENES = {"corr":  lambda s, p: s.corridor(phase=p),
           "wave":  lambda s, p: s.wave(phase=p, amp=58),
           "desy":  lambda s, p: s.desync(phase=p, dy=16),
           "floor": lambda s, p: s.floor(phase=p),
+          # --- act IV, whose whole character is movement forward. Their own
+          # depth sets are hand-typed and not quite geometric, so the loop
+          # would not close; each one here is 1.42**k, the step the generator
+          # already uses, which is the same correction the floor needed.
+          "tunp":  lambda s, p: s.tunnel(phase=p, n=4, ratio=1.7, t=18),
+          "branch": lambda s, p: s.branching(phase=p),
+          "pit":   lambda s, p: s.pit(phase=p),
+          "pitb":  lambda s, p: s.floor(phase=p, xs=range(-4, 5, 2),
+                                        zs=tuple(3.2 ** (_k / 2) for _k in range(3)),
+                                        zfar=3.2 ** 1.25, t=16,  # inside
+                                        # [zs[-1], zs[-1]*step): above that the
+                                        # one extra depth is drawn at phase 0
+                                        # and gone at phase 1, and the loop
+                                        # stops closing -- the same trap the
+                                        # floor's own zfar had
+                                        hole=(-3.0, 3.0, 1.05, 2.4, 1.0, 20)),
+          "walls": lambda s, p: _or(s.rhythm_walls(phase=p),
+                                    s.corridor(phase=p, panels=False, light=False)),
+          "expand": lambda s, p: s.corridor(phase=p, panel_len=1.1, panel_gap=0.35),
           "drift": lambda s, p: s.axis_loss(phase=p,
                                             dx=round(170 * math.sin(2 * math.pi * p)),
                                             dy=round(-60 * math.sin(2 * math.pi * p)))}

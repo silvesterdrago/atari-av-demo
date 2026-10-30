@@ -119,6 +119,30 @@ dist/DISSOLVE.DAT: src/dis.bin | dist
 	cp $< $@
 dist/CUTS.DAT: src/cut.bin | dist
 	cp $< $@
+dist/TUNPLAIN.DAT: src/tunp.bin | dist
+	cp $< $@
+src/tunp.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py tunp
+dist/BRANCH.DAT: src/branch.bin | dist
+	cp $< $@
+src/branch.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py branch
+dist/PIT.DAT: src/pit.bin | dist
+	cp $< $@
+src/pit.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py pit
+dist/PITBOLD.DAT: src/pitb.bin | dist
+	cp $< $@
+src/pitb.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py pitb
+dist/WALLS.DAT: src/walls.bin | dist
+	cp $< $@
+src/walls.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py walls
+dist/EXPAND.DAT: src/expand.bin | dist
+	cp $< $@
+src/expand.bin: tools/genflip.py tools/sysload.py
+	python3 tools/genflip.py expand
 dist/STILLS.DAT: src/stills.bin | dist
 	cp $< $@
 src/stills.bin: tools/genstills.py tools/sysload.py
@@ -179,7 +203,8 @@ dist/ARC.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
 	$(VASM) -Ftos -quiet -o $@ $<
 arc: dist/ARC.TOS dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT \
      dist/DESYNC.DAT dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT \
-     dist/CUTS.DAT dist/STILLS.DAT
+     dist/CUTS.DAT dist/STILLS.DAT \
+     dist/TUNPLAIN.DAT dist/BRANCH.DAT dist/PIT.DAT dist/PITBOLD.DAT dist/WALLS.DAT dist/EXPAND.DAT
 
 # Watch it switch. The number keys drive the rehearsal list; the MIDI pipe is
 # set up too, so tools/pos.py can send positions from another terminal.
@@ -209,6 +234,7 @@ card: spec-check arc dist/PRIMS.TOS
 	@cp dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT dist/DESYNC.DAT \
 	    dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT dist/CUTS.DAT \
 	    dist/STILLS.DAT dist/card/
+	@cp dist/TUNPLAIN.DAT dist/BRANCH.DAT dist/PIT.DAT dist/PITBOLD.DAT dist/WALLS.DAT dist/EXPAND.DAT dist/card/
 	@ls -l dist/card
 	@echo "итого: $$(du -sh dist/card | cut -f1)"
 

@@ -123,6 +123,25 @@ def sunburst(n=16):
     return im
 
 
+def grid_walls():
+    """24: a corridor whose walls and ceiling are grids too."""
+    im, d = new()
+    zs = [1.42 ** k for k in range(6)]          # geometric, as everywhere else
+    for sx in (-1, 1):
+        for yf in (-1, -0.33, 0.33, 1):
+            s.poly_line(d, [s.cz(sx, yf, z) for z in (1, 6)], 8)
+        for z in zs:
+            s.thick_line(d, s.cz(sx, -1, z), s.cz(sx, 1, z), max(4, 14 / z))
+    for xf in (-1, -0.33, 0.33, 1):
+        s.thick_line(d, s.cz(xf, -1, 1), s.cz(xf, -1, 6), 8)
+    for z in zs:
+        s.thick_line(d, s.cz(-1, -1, z), s.cz(1, -1, z), max(4, 14 / z))
+        s.thick_line(d, s.cz(-1, 1, z), s.cz(1, 1, z), max(4, 14 / z))
+    ew, eh = W / 6, H / 6
+    bar(d, CX - ew / 2, CY - eh / 2, CX + ew / 2, CY + eh / 2)
+    return im
+
+
 # position in their sequence -> how to draw it. The ORDER here is the order in
 # the file, and src/arc.s indexes it by that order.
 STILLS = [
@@ -140,6 +159,10 @@ STILLS = [
     (38, "layered", layered),
     (39, "complex-structures", complex_structures),
     (41, "sunburst", sunburst),
+    # act IV: the two that have no phase to ride, so a still is the honest
+    # carrier for them rather than a loop of one picture
+    (20, "room", s.room_corner),
+    (24, "multiple-spaces-A", grid_walls),
 ]
 
 shots = []

@@ -51,6 +51,9 @@
 SCENES      equ 1               ; the core sends commands to scene_select
 HAS_SCENE_KEY equ 1             ; and the number keys through our own list
 HAS_SHOW_FX equ 1               ; and effect codes the core does not know
+    ifd POSTER                  ; BEFORE the include: head.s pulls in tail.s,
+HAS_SHOW_KEY equ 1              ; which is where the keyboard is read
+    endif
 POOL_SIZE   equ 1024
 RANGE_PAGES equ 131             ; two whole screens for the morph family
 
@@ -74,7 +77,6 @@ SETSZ       equ NFRAMES*FRAMESZ
 ; and the band 19 times over, and a frame is a 2160-byte copy rather than a
 ; new picture. PB_REST holds the line still between waves: 18 states at six
 ; frames is a wave of 1.5 s, and the rest makes the turn 6.0 s.
-HAS_SHOW_KEY equ 1
 KIND_POSTER equ 4
 PB_ROWS     equ 27
 PB_SIZE     equ PB_ROWS*80

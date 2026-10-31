@@ -228,15 +228,30 @@ ARCRUN := --tos $(TOS) --machine st --memsize 1 --monitor mono --sound off \
 spec:
 	python3 tools/specgen.py
 
-card: spec-check arc dist/PRIMS.TOS
+card: spec-check arc arc2 dist/PRIMS.TOS
 	@rm -rf dist/card && mkdir -p dist/card
 	@cp dist/ARC.TOS dist/PRIMS.TOS dist/card/
 	@cp dist/CORRIDOR.DAT dist/TUNNEL.DAT dist/WAVE.DAT dist/DESYNC.DAT \
 	    dist/DRIFT.DAT dist/FLOOR.DAT dist/DISSOLVE.DAT dist/CUTS.DAT \
 	    dist/STILLS.DAT dist/card/
 	@cp dist/TUNPLAIN.DAT dist/BRANCH.DAT dist/PIT.DAT dist/PITBOLD.DAT dist/WALLS.DAT dist/EXPAND.DAT dist/card/
+	@cp dist/ARC2.TOS dist/POSTER.DAT dist/card/
 	@ls -l dist/card
 	@echo "итого: $$(du -sh dist/card | cut -f1)"
+
+# ARC with the poster: a second binary on purpose, so the one that has been
+# run stays the one that has been run. -DPOSTER adds the Enter key, position
+# 66 and the band player; without it the source assembles to the same bytes
+# as before, which is checked by arc2-same.
+dist/ARC2.TOS: src/arc.s $(SHOW_DEPS) | $(VASM) dist
+	$(VASM) -Ftos -quiet -DPOSTER=1 -o $@ $<
+dist/POSTER.DAT: src/poster.bin | dist
+	cp $< $@
+arc2: dist/ARC2.TOS dist/POSTER.DAT arc
+
+arc2-same: dist/ARC.TOS
+	@$(VASM) -Ftos -quiet -o /tmp/arc-nopos.TOS src/arc.s
+	@cmp /tmp/arc-nopos.TOS dist/ARC.TOS && echo "ARC.TOS не изменился"
 
 spec-check:
 	@python3 tools/specgen.py --check

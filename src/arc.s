@@ -68,6 +68,22 @@ MORPH       equ 130             ; frames a transition takes
 NFRAMES     equ 24              ; must match tools/genflip.py
 FRAMESZ     equ 32000
 SETSZ       equ NFRAMES*FRAMESZ
+    ifd POSTER
+; The poster is one screen with one band of it moving: 27 rows, 23 down.
+; Only the headline's letters ever move, so the file carries the screen once
+; and the band 19 times over, and a frame is a 2160-byte copy rather than a
+; new picture. PB_REST holds the line still between waves: 18 states at six
+; frames is a wave of 1.5 s, and the rest makes the turn 6.0 s.
+HAS_SHOW_KEY equ 1
+KIND_POSTER equ 4
+PB_ROWS     equ 27
+PB_SIZE     equ PB_ROWS*80
+PB_STATES   equ 19
+PB_TOP      equ 23
+PB_HOLD     equ 6
+PB_REST     equ 319
+PB_SWEEP    equ PB_HOLD*(PB_STATES-1)
+    endif
 KIND_MORPH  equ 0
 KIND_LOOP   equ 1
 KIND_DIS    equ 2
@@ -155,6 +171,10 @@ show_frame:
     beq     .still              ; still work on it, they ride in the core
     cmp.w   #KIND_DIS,d0
     beq     dis_frame
+    ifd POSTER
+    cmp.w   #KIND_POSTER,d0
+    beq     pb_frame
+    endif
     bra     fb_frame
 .still:
     rts
@@ -190,6 +210,10 @@ scene_select:
     beq     .out
     cmp.w   #POS_MAX,d0
     bhi     .out
+    ifd POSTER
+    cmp.w   #POS_MAX,d0         ; 66 IS the title card, so it shows the poster
+    beq     .poster             ; and every other code takes it away
+    endif
     subq.w  #1,d0
     add.w   d0,d0
     lea     pos_tbl,a0
@@ -261,6 +285,11 @@ scene_select:
 .stillpos:
     bsr     load_still
     bra.s   .out
+    ifd POSTER
+.poster:
+    bsr     load_poster
+    bra.s   .out
+    endif
 
 ;---- a composition of the morph family
 .morph:
@@ -363,6 +392,108 @@ load_still:                     ; d0 = which screen
 .done:
     movem.l (sp)+,d0-d5
     rts
+
+    ifd POSTER
+;----------------------------------------------------------------------
+; The poster, off the Enter key or off position 66. The screen goes into
+; the still's buffer and the band states after it; both are read in one
+; blocking pass, like a still, because nothing is on screen worth keeping
+; while it lands.
+;----------------------------------------------------------------------
+load_poster:
+    movem.l d0-d5,-(sp)
+    bsr     load_abort
+    clr.w   loading
+    clr.w   -(sp)
+    pea     nm_poster
+    move.w  #GD_FOPEN,-(sp)
+    trap    #1
+    lea     8(sp),sp
+    tst.l   d0
+    bmi     .done
+    move.w  d0,d4
+
+    move.l  work0,-(sp)
+    move.l  #FRAMESZ,-(sp)
+    move.w  d4,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    move.l  d0,d5
+
+    move.l  frame0,-(sp)        ; the band states live in the loop buffer: the
+    move.l  #PB_STATES*PB_SIZE,-(sp)   ; poster is not a loop, so it is free
+    move.w  d4,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    move.l  d0,d3
+
+    move.w  d4,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
+
+    cmp.l   #FRAMESZ,d5
+    bne.s   .done               ; a short read is not our file
+    cmp.l   #PB_STATES*PB_SIZE,d3
+    bne.s   .done
+    move.w  #KIND_POSTER,kind
+    clr.l   buf_file            ; the loop buffer now holds bands, so whatever
+    clr.w   fb_ready            ; was in it has to be read again
+    clr.w   fx_auto             ; the poster is not a scene: it stays clean
+    clr.w   pb_ctr
+    move.w  #-1,pb_cur
+    move.l  work0,d0
+    bsr     set_screen_base
+.done:
+    movem.l (sp)+,d0-d5
+    rts
+
+;----------------------------------------------------------------------
+; One frame of the poster: work out which band state is due and copy it in
+; only when it is not the one already standing there.
+;----------------------------------------------------------------------
+pb_frame:
+    movem.l d0-d3/a0-a1,-(sp)
+    move.w  pb_ctr,d0
+    addq.w  #1,d0
+    cmp.w   #PB_SWEEP+PB_REST,d0
+    bcs.s   .keep
+    moveq   #0,d0
+.keep:
+    move.w  d0,pb_ctr
+    moveq   #0,d1
+    cmp.w   #PB_SWEEP,d0
+    bcc.s   .rest               ; between waves the line stands at state 0
+    and.l   #$ffff,d0
+    divu    #PB_HOLD,d0
+    move.w  d0,d1
+    addq.w  #1,d1
+.rest:
+    cmp.w   pb_cur,d1
+    beq.s   .out
+    move.w  d1,pb_cur
+    mulu    #PB_SIZE,d1
+    move.l  frame0,a0
+    adda.l  d1,a0
+    move.l  work0,a1
+    adda.w  #PB_TOP*80,a1
+    move.w  #PB_SIZE/4-1,d3
+.cp:
+    move.l  (a0)+,(a1)+
+    dbra    d3,.cp
+.out:
+    movem.l (sp)+,d0-d3/a0-a1
+    rts
+
+;----------------------------------------------------------------------
+; Enter, or p. The core hands any key it does not use itself to this.
+;----------------------------------------------------------------------
+show_key:
+    bsr     load_poster
+    rts
+    endif
 
 ;----------------------------------------------------------------------
 ; Hand the screen back to the morph family. Its two buffers still hold the
@@ -609,6 +740,10 @@ nm_expand:  dc.b "EXPAND.DAT",0
     even
 nm_still:   dc.b "STILLS.DAT",0
     even
+    ifd POSTER
+nm_poster:  dc.b "POSTER.DAT",0
+    even
+    endif
 cut_name:   dc.b "CUTS.DAT",0
     even
 
@@ -647,6 +782,10 @@ stamped:        ds.w 1
 fx_rev:         ds.w 1
 fx_half:        ds.w 1
 kind:           ds.w 1          ; 0 the morph family, 1 a baked loop
+    ifd POSTER
+pb_ctr:         ds.w 1
+pb_cur:         ds.w 1
+    endif
     ifd CYCLE
 cyc_ctr:        ds.w 1
 cyc_pos:        ds.w 1

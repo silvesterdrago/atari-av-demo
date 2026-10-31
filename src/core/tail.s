@@ -586,6 +586,14 @@ poll_keyboard:
     beq.s   .strobe
     cmp.w   #'Z',d1
     beq.s   .strobe
+    ifd HAS_SHOW_KEY            ; a show may claim a key of its own; Enter and
+    cmp.w   #13,d1              ; p both reach it, because one wrong key on the
+    beq.s   .showkey            ; night costs more than a second compare
+    cmp.w   #'p',d1
+    beq.s   .showkey
+    cmp.w   #'P',d1
+    beq.s   .showkey
+    endif
     ifd SCENES
     move.w  d0,d1               ; 1..9 pick a scene; a standalone show has
     and.w   #$ff,d1             ; no scene table and falls through to a hit
@@ -613,6 +621,11 @@ poll_keyboard:
 .quit:
     move.w  #1,quit_flag
     rts
+    ifd HAS_SHOW_KEY
+.showkey:
+    bsr     show_key
+    rts
+    endif
 .strobe:
     bsr     strobe_toggle
     rts

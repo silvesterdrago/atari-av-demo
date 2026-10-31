@@ -26,10 +26,10 @@ from PIL import Image
 
 BAND = (14, 60)             # the headline, measured off the ink profile
 BG_ROW = 5                  # a row above it, which is pure background
-SECONDS = 15.0
+SECONDS = 18.0
 FPS = 24                    # so a cycle lands on a frame and the loop can be
                             # checked rather than asserted
-CYCLE = 5.0                 # one wave a cycle, inside the brief's 5-7 s and
+CYCLE = 6.0                 # one wave a cycle, inside the brief's 5-7 s and
                             # a whole divisor of the test, so the loop closes
 SWEEP = 1.4                 # how long the wave takes to cross the line
 HOLD = 0.22                 # how long one letter stays up
@@ -79,7 +79,20 @@ def main():
     glyphs = letters(ink)
     edge = int(np.argmin(paper))            # where the block begins
     glyphs = [(a, b) for a, b in glyphs if not (a < edge < b)]
-    print(f"{len(glyphs)} знаков, клетка {cell} px, кромка блока на x={edge}")
+
+    def height(g):
+        rows = np.where(ink[:, g[0]:g[1]].any(axis=1))[0]
+        return rows.max() - rows.min() + 1
+
+    hs = sorted(height(g) for g in glyphs)
+    full = hs[len(hs) // 2]
+    # the x between the names is a separator, not a letter, and it is the one
+    # mark on the line that does not reach full height
+    moving = [g for g in glyphs if height(g) >= 0.7 * full]
+    skipped = len(glyphs) - len(moving)
+    print(f"{len(moving)} букв (пропущено {skipped}: ниже строчной), "
+          f"клетка {cell} px, кромка блока на x={edge}")
+    glyphs = moving
 
     # Only a moving glyph's own box is ever repainted, so the rest of the
     # poster stays the file's own bytes -- the block's soft edge included.

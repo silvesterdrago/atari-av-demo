@@ -210,15 +210,23 @@ scene_select:
     beq     .out
     cmp.w   #POS_MAX,d0
     bhi     .out
-    ifd POSTER
-    cmp.w   #POS_MAX,d0         ; 66 IS the title card, so it shows the poster
-    beq     .poster             ; and every other code takes it away
-    endif
     subq.w  #1,d0
     add.w   d0,d0
     lea     pos_tbl,a0
     move.w  0(a0,d0.w),d0
+    ifd POSTER
+    bne.s   .have
+    cmp.w   #KIND_POSTER,kind   ; an empty code is still a scene signal, and
+    bne     .out                ; the poster comes off on any of them
+    moveq   #SAFE_STATE,d5
+    bsr     to_morph
+    move.w  d5,d0
+    bsr     mo_goto
+    bra     .out
+.have:
+    else
     beq     .out                ; a position we have not built
+    endif
     move.w  d0,d2
     lsr.w   #8,d2               ; 1 morph, 2 loop, 3 loop and the block,
     and.w   #$ff,d0             ; 4 loop and then break it apart
@@ -285,11 +293,6 @@ scene_select:
 .stillpos:
     bsr     load_still
     bra.s   .out
-    ifd POSTER
-.poster:
-    bsr     load_poster
-    bra.s   .out
-    endif
 
 ;---- a composition of the morph family
 .morph:

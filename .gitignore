@@ -64,3 +64,6 @@ tetrapod_preview.png
 
 # документы от художника и площадки: читаем, но не версионируем
 *.docx
+
+# poster tests: renders, not sources
+poster_*.mp4

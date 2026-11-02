@@ -163,6 +163,13 @@ show_frame:
     bsr     scene_key
 .nocyc:
     endif
+    ifd KEYTEST
+    addq.w  #1,kt_ctr
+    cmp.w   #KEYTEST,kt_ctr
+    bne.s   .nokt
+    bsr     show_key
+.nokt:
+    endif
     tst.w   loading             ; a loop on its way in, a chunk a frame
     beq.s   .noload
     bsr     load_step
@@ -390,7 +397,8 @@ load_still:                     ; d0 = which screen
     cmp.l   #FRAMESZ,d5
     bne.s   .done               ; a short read is not our file
     move.w  #KIND_STILL,kind
-    move.w  #1,fx_auto          ; nothing in a still moves by itself, so the
+    bsr     fx_forget_noise     ; the rows saved belong to the picture this
+    move.w  #1,fx_auto          ; one replaces          ; nothing in a still moves by itself, so the
                                 ; follower is let loose on it
     move.l  work0,d0
     bsr     set_screen_base
@@ -406,53 +414,76 @@ load_still:                     ; d0 = which screen
 ; while it lands.
 ;----------------------------------------------------------------------
 load_poster:
-    movem.l d0-d5,-(sp)
+    movem.l d0-d6/a0,-(sp)
     bsr     load_abort
     clr.w   loading
-    clr.w   -(sp)
+    clr.w   -(sp)               ; Fopen, read only
     pea     nm_poster
     move.w  #GD_FOPEN,-(sp)
     trap    #1
     lea     8(sp),sp
     tst.l   d0
     bmi     .done
-    move.w  d0,d4
+    move.w  d0,d4               ; GEMDOS keeps d3-d7, and nothing else
 
-    move.l  work0,-(sp)
+    move.l  work0,-(sp)         ; the picture first, one screen
     move.l  #FRAMESZ,-(sp)
     move.w  d4,-(sp)
     move.w  #GD_FREAD,-(sp)
     trap    #1
     lea     12(sp),sp
-    move.l  d0,d5
+    cmp.l   #FRAMESZ,d0
+    bne     .shut               ; a short read is not our file
 
-    move.l  frame0,-(sp)        ; the band states live in the loop buffer: the
-    move.l  #PB_STATES*PB_SIZE,-(sp)   ; poster is not a loop, so it is free
-    move.w  d4,-(sp)
-    move.w  #GD_FREAD,-(sp)
-    trap    #1
-    lea     12(sp),sp
-    move.l  d0,d3
-
-    move.w  d4,-(sp)
-    move.w  #GD_FCLOSE,-(sp)
-    trap    #1
-    addq.l  #4,sp
-
-    cmp.l   #FRAMESZ,d5
-    bne.s   .done               ; a short read is not our file
-    cmp.l   #PB_STATES*PB_SIZE,d3
-    bne.s   .done
+    ; Show it before reading the rest: the bands take another 110 ms, and
+    ; they land in the loop buffer, so the beam has to be somewhere else by
+    ; then or it spends that time reading memory being overwritten.
     move.w  #KIND_POSTER,kind
     clr.l   buf_file            ; the loop buffer now holds bands, so whatever
     clr.w   fb_ready            ; was in it has to be read again
-    clr.w   fx_auto             ; the poster is not a scene: it stays clean
+    clr.w   fx_auto             ; the poster is not a scene: nothing drives it
+    clr.w   nz_on               ; and nothing the last scene left running is
+    clr.w   nz_held             ; allowed to keep painting over it
+    clr.w   sh_held
+    clr.w   fx_shift
+    bsr     fx_forget_noise
     clr.w   pb_ctr
     move.w  #-1,pb_cur
     move.l  work0,d0
     bsr     set_screen_base
+
+    ; The bands go in chunks of LOADCH. Nothing else in this program asks
+    ; the machine for more than one screen in a single read, and the loop
+    ; loader does ninety-four of these on every scene change, so this is the
+    ; read size the card is known to answer.
+    moveq   #0,d6
+.band:
+    move.l  #PB_STATES*PB_SIZE,d5
+    sub.l   d6,d5
+    beq.s   .shut               ; all of it in
+    cmp.l   #LOADCH,d5
+    bls.s   .last
+    move.l  #LOADCH,d5
+.last:
+    move.l  frame0,d0
+    add.l   d6,d0
+    move.l  d0,-(sp)
+    move.l  d5,-(sp)
+    move.w  d4,-(sp)
+    move.w  #GD_FREAD,-(sp)
+    trap    #1
+    lea     12(sp),sp
+    cmp.l   d5,d0
+    bne.s   .shut               ; short: the file is not what we think
+    add.l   d5,d6
+    bra.s   .band
+.shut:
+    move.w  d4,-(sp)
+    move.w  #GD_FCLOSE,-(sp)
+    trap    #1
+    addq.l  #4,sp
 .done:
-    movem.l (sp)+,d0-d5
+    movem.l (sp)+,d0-d6/a0
     rts
 
 ;----------------------------------------------------------------------
@@ -570,6 +601,7 @@ load_step:
     bcs.s   .out
     bsr     load_abort          ; done: close it and take the file
     move.l  ld_file,buf_file
+    bsr     fx_forget_noise     ; the rows saved belong to the screens these
     clr.w   stamped             ; fresh screens carry no block
     move.w  #1,fb_ready
     move.w  ld_stamp,d0
@@ -791,6 +823,9 @@ kind:           ds.w 1          ; 0 the morph family, 1 a baked loop
 pb_ctr:         ds.w 1
 pb_cur:         ds.w 1
     endif
+    ifd KEYTEST                 ; press the show's key from the mainloop at a
+kt_ctr:         ds.w 1          ; given frame: the key path cannot be reached
+    endif                       ; from a headless run any other way
     ifd CYCLE
 cyc_ctr:        ds.w 1
 cyc_pos:        ds.w 1

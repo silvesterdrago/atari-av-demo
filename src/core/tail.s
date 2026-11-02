@@ -960,7 +960,19 @@ fx_auto_frame:
 ; both come through here: a held effect whose note-off never arrives --
 ; because the tape stopped -- would otherwise stay on for good.
 ;----------------------------------------------------------------------
+;----------------------------------------------------------------------
+; The saved rows belong to the picture that was on screen when they were
+; taken. Replace that picture -- load a still, a poster, a fresh loop --
+; and they have to be forgotten, or the next frame paints rows of the old
+; scene back over the new one.
+;----------------------------------------------------------------------
+fx_forget_noise:
+    clr.w   nz_n
+    clr.w   nz_total
+    rts
+
 fx_reset:
+    bsr     fx_forget_noise
     clr.w   flash_lock
     clr.w   sh_last
     clr.w   nz_on
